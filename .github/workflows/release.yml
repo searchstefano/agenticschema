@@ -1,0 +1,54 @@
+name: Release
+
+on:
+  push:
+    branches: [main]
+
+# Two release runs at once would race each other to the registry.
+concurrency: release
+
+permissions: {}
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write # push the version commit and the tags
+      pull-requests: write # open and update the release PR
+      id-token: write # the OIDC token npm exchanges for publish rights
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # changesets compares against history to work out what to bump
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          registry-url: https://registry.npmjs.org
+          cache: npm
+
+      # Node 22 ships npm 10, and trusted publishing needs 11.5.1 or newer.
+      # Without this the publish falls back to looking for a token and fails.
+      - run: npm install -g npm@latest
+
+      - run: npm ci
+
+      # Everything the release depends on, checked before anything is published.
+      - run: npm run typecheck
+      - run: npm test
+      - run: npm run build
+      - run: npm run size
+
+      # With changesets pending, this opens a PR that applies the version bumps.
+      # Once that PR is merged the same job runs again and publishes instead.
+      - uses: changesets/action@v1
+        with:
+          version: npm run version-packages
+          publish: npm run release
+          commit: 'Version packages'
+          title: 'Version packages'
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # No NPM_TOKEN. Authentication comes from the OIDC token above, which is
+          # why each package has to name this workflow as a trusted publisher.
