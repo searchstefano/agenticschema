@@ -1,0 +1,54 @@
+{
+  "name": "@agenticschema/browser",
+  "version": "0.0.0",
+  "type": "module",
+  "description": "Registra lo Schema.org della pagina come tool WebMCP, con un tag script.",
+  "license": "MIT",
+  "sideEffects": [
+    "./dist/auto.js"
+  ],
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "unpkg": "./dist/cdn/auto.js",
+  "jsdelivr": "./dist/cdn/auto.js",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./auto": {
+      "types": "./dist/auto.d.ts",
+      "import": "./dist/auto.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "dependencies": {
+    "@agenticschema/core": "0.0.0",
+    "@agenticschema/profiles": "0.0.0",
+    "@mcp-b/webmcp-polyfill": "^4.0.0"
+  },
+  "scripts": {
+    "build": "tsup && tsc -p tsconfig.build.json"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/searchstefano/agenticschema.git",
+    "directory": "packages/browser"
+  },
+  "bugs": {
+    "url": "https://github.com/searchstefano/agenticschema/issues"
+  },
+  "homepage": "https://github.com/searchstefano/agenticschema/tree/main/packages/browser#readme",
+  "keywords": [
+    "webmcp",
+    "mcp",
+    "model-context-protocol",
+    "schema.org",
+    "json-ld",
+    "ai-agents",
+    "browser"
+  ],
+  "author": "searchstefano"
+}
