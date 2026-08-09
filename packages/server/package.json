@@ -1,0 +1,49 @@
+{
+  "name": "@agenticschema/server",
+  "version": "0.0.0",
+  "type": "module",
+  "description": "Espone lo Schema.org di una pagina come server MCP (stdio o HTTP).",
+  "license": "MIT",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "bin": {
+    "agenticschema": "./dist/cli.js"
+  },
+  "files": [
+    "dist"
+  ],
+  "dependencies": {
+    "@agenticschema/core": "0.0.0",
+    "@agenticschema/profiles": "0.0.0",
+    "@modelcontextprotocol/server": "^2.0.0",
+    "ajv": "^8.17.1",
+    "happy-dom": "^20.11.2"
+  },
+  "scripts": {
+    "build": "tsup src/index.ts src/cli.ts --format esm --clean && tsc -p tsconfig.build.json"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/searchstefano/agenticschema.git",
+    "directory": "packages/server"
+  },
+  "bugs": {
+    "url": "https://github.com/searchstefano/agenticschema/issues"
+  },
+  "homepage": "https://github.com/searchstefano/agenticschema/tree/main/packages/server#readme",
+  "keywords": [
+    "mcp",
+    "model-context-protocol",
+    "mcp-server",
+    "schema.org",
+    "json-ld",
+    "ai-agents"
+  ],
+  "author": "searchstefano"
+}
