@@ -2,7 +2,7 @@
   "name": "@agenticschema/browser",
   "version": "0.1.0",
   "type": "module",
-  "description": "Registra lo Schema.org della pagina come tool WebMCP, con un tag script.",
+  "description": "Expose a page Schema.org markup as WebMCP tools, with a single script tag.",
   "license": "MIT",
   "sideEffects": [
     "./dist/auto.js"

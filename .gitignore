@@ -4,9 +4,12 @@ coverage/
 *.tsbuildinfo
 .DS_Store
 
-# Lo spike della Fase 0 resta come documentazione, le sue dipendenze no.
+# The phase-zero spike is kept as documentation, its dependencies are not.
 spike/node_modules/
 
-# Corpus scaricato da pagine reali: utile in locale, non ridistribuibile.
+# Corpus fetched from real pages: useful locally, not ours to redistribute.
 packages/core/test/fixtures/local/*
 !packages/core/test/fixtures/local/.gitkeep
+
+# May hold a registry token.
+.npmrc

@@ -2,7 +2,7 @@
   "name": "@agenticschema/server",
   "version": "0.1.0",
   "type": "module",
-  "description": "Espone lo Schema.org di una pagina come server MCP (stdio o HTTP).",
+  "description": "Serve the Schema.org markup of any URL as an MCP server over stdio or HTTP.",
   "license": "MIT",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",

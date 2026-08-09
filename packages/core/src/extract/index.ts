@@ -153,9 +153,44 @@ function propertyValue(el: Element): string {
 // RDFa Lite (typeof / property / resource / vocab)
 // ---------------------------------------------------------------------------
 
+const SCHEMA_ORG_IRI = /^https?:\/\/(www\.)?schema\.org\//i;
+
+/**
+ * RDFa è un meccanismo generico: qualunque vocabolario può usarlo, e dare per
+ * scontato che sia sempre schema.org non regge fuori dai test. MediaWiki annota
+ * il proprio markup con `typeof="mw:Transclusion"`, `mw:File/Thumb`, `mw:Entity`
+ * e simili — una pagina di Wikipedia ne contiene oltre centosessanta, e senza
+ * questo filtro finivano tutti nel grafo come entità.
+ *
+ * Restituisce il nome locale se il termine appartiene a schema.org, `undefined`
+ * altrimenti.
+ */
+function schemaTerm(value: string): string | undefined {
+  const term = value.trim();
+  if (!term) return undefined;
+  if (SCHEMA_ORG_IRI.test(term)) return term.slice(term.lastIndexOf('/') + 1);
+
+  const colon = term.indexOf(':');
+  // Termine nudo: si assume il vocabolario di default, che per i dati
+  // strutturati è schema.org. Con un prefisso, invece, dev'essere il suo.
+  if (colon === -1) return term;
+  return term.slice(0, colon).toLowerCase() === 'schema' ? term.slice(colon + 1) : undefined;
+}
+
+const schemaTypesOf = (el: Element): string[] =>
+  (el.getAttribute('typeof') ?? '')
+    .split(/\s+/)
+    .map(schemaTerm)
+    .filter((t): t is string => Boolean(t));
+
 function extractRdfa(doc: Document): RawNode[] {
-  const tops = [...doc.querySelectorAll('[typeof]')].filter(
-    (el) => !el.parentElement?.closest('[typeof]')
+  const entities = [...doc.querySelectorAll('[typeof]')].filter(
+    (el) => schemaTypesOf(el).length > 0
+  );
+  // Radici fra le sole entità schema.org: un wrapper di un altro vocabolario
+  // frapposto non deve far sembrare radice un'entità annidata.
+  const tops = entities.filter(
+    (el) => !entities.some((other) => other !== el && other.contains(el))
   );
   return tops.map((el) => ({ data: readRdfaItem(el), format: 'rdfa' as const }));
 }
@@ -163,7 +198,7 @@ function extractRdfa(doc: Document): RawNode[] {
 function readRdfaItem(scope: Element): JsonObject {
   const item: JsonObject = {};
 
-  const types = (scope.getAttribute('typeof') ?? '').split(/\s+/).filter(Boolean).map(localName);
+  const types = schemaTypesOf(scope);
   if (types.length) item['@type'] = types.length === 1 ? (types[0] as string) : types;
 
   const resource = scope.getAttribute('resource') ?? scope.getAttribute('about');
@@ -174,7 +209,8 @@ function readRdfaItem(scope: Element): JsonObject {
   );
 
   for (const prop of props) {
-    const name = localName(prop.getAttribute('property') ?? '');
+    // Stesso filtro sulle proprietà: `property="mw:..."` non è un dato nostro.
+    const name = schemaTerm(prop.getAttribute('property') ?? '');
     if (!name) continue;
     const value: JsonValue = prop.hasAttribute('typeof')
       ? readRdfaItem(prop)

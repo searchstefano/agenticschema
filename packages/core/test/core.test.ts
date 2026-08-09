@@ -63,6 +63,36 @@ describe('extract', () => {
     expect(byType(graph, 'Offer')?.props['price']).toEqual(['129.90']);
   });
 
+  it('ignora i vocabolari RDFa che non sono schema.org', () => {
+    // Regressione: RDFa è generico e MediaWiki lo usa per annotare il proprio
+    // markup. Una pagina di Wikipedia contiene oltre 160 typeof="mw:*" e finivano
+    // tutti nel grafo: su quel caso reale erano 11 tool di spazzatura su 14.
+    const doc = docOf(`
+      <span typeof="mw:Entity">&amp;</span>
+      <div typeof="mw:Transclusion mw:Extension/templatestyles"></div>
+      <figure typeof="mw:File/Thumb"><span property="mw:caption">didascalia</span></figure>
+      <div typeof="dc:Collection"></div>
+      <div typeof="schema:Product">
+        <span property="name">Zaino</span>
+        <span property="mw:internalNote">da ignorare</span>
+      </div>`);
+
+    const graph = normalize(extract(doc, { formats: ['rdfa'] }).nodes);
+    expect([...graph.nodes.values()].map((e) => e.types[0])).toEqual(['Product']);
+
+    const product = byType(graph, 'Product');
+    expect(product?.props['name']).toEqual(['Zaino']);
+    expect(product?.props['internalNote']).toBeUndefined();
+  });
+
+  it('riconosce schema.org in tutte le forme in cui viene scritto', () => {
+    const forme = ['Product', 'schema:Product', 'https://schema.org/Product', 'http://schema.org/Product'];
+    for (const form of forme) {
+      const graph = normalize(extract(docOf(`<div typeof="${form}"></div>`), { formats: ['rdfa'] }).nodes);
+      expect(byType(graph, 'Product'), form).toBeDefined();
+    }
+  });
+
   it('estrae RDFa da un Document', () => {
     const doc = docOf(`
       <div typeof="schema:Product">
