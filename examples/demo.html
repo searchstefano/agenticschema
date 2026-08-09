@@ -1,0 +1,142 @@
+<!doctype html>
+<html lang="it">
+  <head>
+    <meta charset="utf-8" />
+    <title>agenticschema — pagina demo</title>
+
+    <!--
+      Markup che un e-commerce qualsiasi ha già. Nessuna riga scritta per gli agenti.
+      Dati inventati.
+    -->
+    <script type="application/ld+json">
+      {
+        "@context": "https://schema.org",
+        "@graph": [
+          {
+            "@type": "WebSite",
+            "@id": "#sito",
+            "url": "https://negozio.esempio/",
+            "potentialAction": {
+              "@type": "SearchAction",
+              "target": {
+                "@type": "EntryPoint",
+                "urlTemplate": "https://negozio.esempio/cerca?q={search_term_string}"
+              },
+              "query-input": "required name=search_term_string"
+            }
+          },
+          {
+            "@type": "Product",
+            "@id": "#prodotto",
+            "name": "Zaino Trekking 45L",
+            "description": "Zaino da escursionismo con telaio in alluminio e schienale ventilato.",
+            "sku": "ZT-45-BLU",
+            "brand": { "@type": "Brand", "name": "Altavia" },
+            "offers": {
+              "@type": "Offer",
+              "price": "129.90",
+              "priceCurrency": "EUR",
+              "availability": "https://schema.org/InStock"
+            },
+            "aggregateRating": {
+              "@type": "AggregateRating",
+              "ratingValue": "4.5",
+              "reviewCount": "27"
+            },
+            "review": [
+              { "@type": "Review", "reviewBody": "Comodo anche a pieno carico." },
+              { "@type": "Review", "reviewBody": "Cinghie un po' rigide all'inizio." }
+            ]
+          }
+        ]
+      }
+    </script>
+
+    <!--
+      Ponte verso il relay locale, SOLO per la verifica end-to-end in sviluppo.
+      Il polyfill fornisce l'API `document.modelContext`, non la connessione: questo
+      script apre il WebSocket verso ws://127.0.0.1:9333 e pubblica al relay i tool
+      già registrati sull'API. In produzione non serve — ci pensa il browser.
+    -->
+    <script src="https://cdn.jsdelivr.net/npm/@mcp-b/webmcp-local-relay@latest/dist/browser/embed.js"></script>
+
+    <style>
+      body {
+        font: 16px/1.6 system-ui, sans-serif;
+        max-width: 46rem;
+        margin: 3rem auto;
+        padding: 0 1.5rem;
+      }
+      code {
+        background: #f4f4f5;
+        padding: 0.1em 0.35em;
+        border-radius: 3px;
+      }
+      #stato {
+        border-left: 3px solid #d4d4d8;
+        padding: 0.75rem 1rem;
+        margin: 1.5rem 0;
+      }
+      li {
+        margin: 0.35rem 0;
+      }
+    </style>
+  </head>
+
+  <body>
+    <h1>Zaino Trekking 45L</h1>
+    <p>129,90 € — disponibile</p>
+
+    <div id="stato">Avvio…</div>
+    <ul id="elenco"></ul>
+
+    <h2>Come verificare end-to-end</h2>
+    <ol>
+      <li>
+        Percorso nativo: Chrome con
+        <code>--enable-experimental-web-platform-features</code>.
+      </li>
+      <li>
+        Percorso via relay: <code>npx @mcp-b/webmcp-local-relay</code>, poi da Claude Desktop
+        chiedere «qual è il prezzo del prodotto su questa pagina» e verificare che
+        <strong>chiami il tool</strong> invece di inventare la risposta.
+      </li>
+    </ol>
+
+    <script type="module">
+      // In sviluppo si punta al build locale; da CDN sarebbe
+      // https://cdn.jsdelivr.net/npm/@agenticschema/browser
+      // `auto.js` si avvia da solo: si consuma l'handle che espone, non si richiama start()
+      // (lo farebbe partire una seconda volta, registrando i tool due volte).
+      import { ready } from '../packages/browser/dist/cdn/auto.js';
+
+      const stato = document.getElementById('stato');
+      const elenco = document.getElementById('elenco');
+
+      try {
+        const handle = await ready;
+        const tools = handle.tools();
+
+        stato.textContent = tools.length
+          ? `${tools.length} tool registrati su document.modelContext.`
+          : 'Nessun tool: WebMCP non disponibile e polyfill non caricabile.';
+
+        for (const tool of tools) {
+          // textContent, non innerHTML: name e description derivano dal markup della
+          // pagina. Il guard toglie i tag, ma una demo che si copia non deve
+          // insegnare a interpolare dati esterni in HTML.
+          const li = document.createElement('li');
+          const code = document.createElement('code');
+          code.textContent = tool.name;
+          li.append(code, ` — ${tool.description}`);
+          elenco.append(li);
+        }
+
+        // Comodo per ispezionare dalla console.
+        globalThis.agenticschema = handle;
+      } catch (err) {
+        stato.textContent = `Avvio fallito: ${err.message}`;
+      }
+    </script>
+  </body>
+</html>
