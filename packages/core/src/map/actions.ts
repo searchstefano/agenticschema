@@ -9,10 +9,10 @@ import {
 } from '../types.js';
 
 /**
- * Solo azioni idempotenti. Un `OrderAction` o un `ReserveAction` hanno effetti
- * nel mondo reale: esporli automaticamente significherebbe che aggiungere uno
- * script a un sito ne rende ordinabili i prodotti da qualsiasi agente.
- * Quelle passano dall'opt-in esplicito di `defineTool`.
+ * Idempotent actions only. An `OrderAction` or a `ReserveAction` has
+ * consequences out in the world: generating those automatically would mean that
+ * dropping a script onto a site makes its products orderable by any agent that
+ * wanders past. Those go through the explicit opt-in of `defineTool` instead.
  */
 const IDEMPOTENT_ACTIONS = new Set(['SearchAction', 'FindAction', 'ReadAction', 'ViewAction']);
 
@@ -24,15 +24,15 @@ const VERB_BY_TYPE: Record<string, string> = {
 };
 
 export interface ActionOptions {
-  /** Origin della pagina. Senza, nessuna azione viene generata: non c'è modo di verificare la destinazione. */
+  /** The page's origin. Without it nothing is generated: there is no way to vet where a request would go. */
   pageOrigin?: string;
-  /** Host aggiuntivi ammessi oltre all'origin della pagina. */
+  /** Extra hosts allowed beyond the page's own origin. */
   allowedHosts?: readonly string[];
-  /** Iniettabile per i test e per l'adapter server. */
+  /** Injectable for tests and for the server adapter. */
   fetchImpl?: typeof globalThis.fetch;
   /**
-   * Tetto sulla durata di una richiesta. Senza, un endpoint lento o che non
-   * risponde mai terrebbe l'agente in attesa a tempo indefinito.
+   * Ceiling on how long a request may take. Without one, a slow endpoint, or one
+   * that never answers at all, leaves the agent waiting indefinitely.
    */
   timeoutMs?: number;
 }
@@ -44,14 +44,15 @@ export interface ActionResult {
   diagnostics: Diagnostic[];
 }
 
-/** Da `potentialAction` a tool eseguibile, con le regole di sicurezza applicate qui e non a valle. */
+/** From `potentialAction` to an executable tool, with the safety rules applied here rather than downstream. */
 export function mapActions(graph: EntityGraph, options: ActionOptions = {}): ActionResult {
   const diagnostics: Diagnostic[] = [];
   const tools: ToolDescriptor[] = [];
   const used = new Set<string>();
 
   const skip = (type: string, reason: string): void => {
-    // Mai in silenzio: chi integra deve poter capire perché la sua azione non c'è.
+    // Never silently: whoever is integrating has to be able to find out why
+    // their action did not show up.
     diagnostics.push({
       level: 'info',
       code: 'action-skipped',
@@ -96,10 +97,10 @@ export function mapActions(graph: EntityGraph, options: ActionOptions = {}): Act
         continue;
       }
 
-      // Il controllo sopra valuta il template coi placeholder rimossi. Se un
-      // parametro cade nell'autorità, quell'URL non sarà mai quello vero: a
-      // runtime ogni valore non vuoto verrebbe respinto, e resterebbe esposto
-      // all'agente un tool che non può funzionare. Meglio non generarlo.
+      // The check above evaluates the template with its placeholders stripped
+      // out. If a parameter lands in the authority, that URL will never be the
+      // real one: at runtime every non-empty value gets rejected, leaving the
+      // agent with a tool that cannot possibly work. Better not to offer it.
       if (touchesAuthority(urlTemplate)) {
         skip(type, 'a template parameter would alter scheme, host or port');
         continue;
@@ -153,11 +154,11 @@ function buildActionTool(args: {
       ...(required ? { required: [required] } : {}),
       additionalProperties: false,
     },
-    // Idempotente per costruzione, ma tocca la rete: openWorld resta true.
+    // Idempotent by construction, but it touches the network, so openWorld stays true.
     annotations: { readOnlyHint: true, openWorldHint: true },
     execute: async (input) => {
       const url = expand(urlTemplate, input);
-      // Ricontrollo DOPO l'espansione: un valore ostile non deve poter spostare la destinazione.
+      // Checked again AFTER expansion: a hostile value must not be able to move the destination.
       const check = safeDestination(url, options);
       if ('error' in check) {
         return {
@@ -186,8 +187,8 @@ function buildActionTool(args: {
 }
 
 /**
- * Same-origin per default. Un `urlTemplate` ostile che punta altrove
- * trasformerebbe il tool in un canale di esfiltrazione dei parametri.
+ * Same-origin by default. A hostile `urlTemplate` pointing somewhere else would
+ * turn the tool into an exfiltration channel for its own parameters.
  */
 function safeDestination(
   candidate: string,
@@ -221,19 +222,19 @@ function safeDestination(
 }
 
 /**
- * Un parametro nell'autorità (schema, host, porta) potrebbe cambiare la
- * destinazione. Il resto del template è solo path e query: lì l'encoding dei
- * valori basta a tenerli dentro il segmento.
+ * A parameter sitting in the authority (scheme, host, port) could change where
+ * the request goes. Everywhere else in the template is path and query, and there
+ * encoding the value is enough to keep it inside its own segment.
  */
 function touchesAuthority(template: string): boolean {
   const schemeEnd = template.indexOf('://');
-  if (schemeEnd === -1) return /^\{/.test(template.trim()); // template relativo
+  if (schemeEnd === -1) return /^\{/.test(template.trim()); // relative template
   const pathStart = template.indexOf('/', schemeEnd + 3);
   const authority = pathStart === -1 ? template : template.slice(0, pathStart);
   return /\{[A-Za-z0-9_]+\}/.test(authority);
 }
 
-/** RFC 6570 livello 1 soltanto: `{var}`. Niente operatori, niente esplosioni. */
+/** RFC 6570 level 1 only: `{var}`. No operators, no explosions. */
 const TEMPLATE_VAR = /\{([A-Za-z0-9_]+)\}/g;
 
 const templateVariables = (template: string): string[] => [
@@ -247,7 +248,7 @@ function expand(template: string, input: Record<string, unknown>): string {
   });
 }
 
-/** Sia la forma stringa `"required name=x"` sia PropertyValueSpecification. */
+/** Handles both the string form `"required name=x"` and PropertyValueSpecification. */
 function requiredParam(action: Entity): string | undefined {
   const spec = action.props['query-input']?.[0];
   if (typeof spec === 'string') {

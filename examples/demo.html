@@ -1,12 +1,12 @@
 <!doctype html>
-<html lang="it">
+<html lang="en">
   <head>
     <meta charset="utf-8" />
-    <title>agenticschema — pagina demo</title>
+    <title>agenticschema demo page</title>
 
     <!--
-      Markup che un e-commerce qualsiasi ha già. Nessuna riga scritta per gli agenti.
-      Dati inventati.
+      The markup any shop already has. Not one line written for agents.
+      All values are made up.
     -->
     <script type="application/ld+json">
       {
@@ -14,22 +14,22 @@
         "@graph": [
           {
             "@type": "WebSite",
-            "@id": "#sito",
-            "url": "https://negozio.esempio/",
+            "@id": "#site",
+            "url": "https://shop.example/",
             "potentialAction": {
               "@type": "SearchAction",
               "target": {
                 "@type": "EntryPoint",
-                "urlTemplate": "https://negozio.esempio/cerca?q={search_term_string}"
+                "urlTemplate": "https://shop.example/search?q={search_term_string}"
               },
               "query-input": "required name=search_term_string"
             }
           },
           {
             "@type": "Product",
-            "@id": "#prodotto",
-            "name": "Zaino Trekking 45L",
-            "description": "Zaino da escursionismo con telaio in alluminio e schienale ventilato.",
+            "@id": "#product",
+            "name": "Trekking Backpack 45L",
+            "description": "Hiking pack with an aluminium frame and a ventilated back panel.",
             "sku": "ZT-45-BLU",
             "brand": { "@type": "Brand", "name": "Altavia" },
             "offers": {
@@ -44,8 +44,8 @@
               "reviewCount": "27"
             },
             "review": [
-              { "@type": "Review", "reviewBody": "Comodo anche a pieno carico." },
-              { "@type": "Review", "reviewBody": "Cinghie un po' rigide all'inizio." }
+              { "@type": "Review", "reviewBody": "Still comfortable fully loaded." },
+              { "@type": "Review", "reviewBody": "Straps are stiff for the first few outings." }
             ]
           }
         ]
@@ -53,10 +53,10 @@
     </script>
 
     <!--
-      Ponte verso il relay locale, SOLO per la verifica end-to-end in sviluppo.
-      Il polyfill fornisce l'API `document.modelContext`, non la connessione: questo
-      script apre il WebSocket verso ws://127.0.0.1:9333 e pubblica al relay i tool
-      già registrati sull'API. In produzione non serve — ci pensa il browser.
+      A bridge to the local relay, for end-to-end checks during development only.
+      The polyfill provides the `document.modelContext` API but not a connection:
+      this script opens the WebSocket to ws://127.0.0.1:9333 and publishes the
+      tools already registered on that API. In production the browser handles it.
     -->
     <script src="https://cdn.jsdelivr.net/npm/@mcp-b/webmcp-local-relay@latest/dist/browser/embed.js"></script>
 
@@ -72,7 +72,7 @@
         padding: 0.1em 0.35em;
         border-radius: 3px;
       }
-      #stato {
+      #status {
         border-left: 3px solid #d4d4d8;
         padding: 0.75rem 1rem;
         margin: 1.5rem 0;
@@ -84,58 +84,58 @@
   </head>
 
   <body>
-    <h1>Zaino Trekking 45L</h1>
-    <p>129,90 € — disponibile</p>
+    <h1>Trekking Backpack 45L</h1>
+    <p>129.90 EUR, in stock</p>
 
-    <div id="stato">Avvio…</div>
-    <ul id="elenco"></ul>
+    <div id="status">Starting…</div>
+    <ul id="list"></ul>
 
-    <h2>Come verificare end-to-end</h2>
+    <h2>How to check this end to end</h2>
     <ol>
       <li>
-        Percorso nativo: Chrome con
+        Native path: Chrome with
         <code>--enable-experimental-web-platform-features</code>.
       </li>
       <li>
-        Percorso via relay: <code>npx @mcp-b/webmcp-local-relay</code>, poi da Claude Desktop
-        chiedere «qual è il prezzo del prodotto su questa pagina» e verificare che
-        <strong>chiami il tool</strong> invece di inventare la risposta.
+        Relay path: <code>npx @mcp-b/webmcp-local-relay</code>, then ask Claude Desktop
+        what the product on this page costs and check that it
+        <strong>calls the tool</strong> rather than making the answer up.
       </li>
     </ol>
 
     <script type="module">
-      // In sviluppo si punta al build locale; da CDN sarebbe
+      // Points at the local build. From a CDN this would be
       // https://cdn.jsdelivr.net/npm/@agenticschema/browser
-      // `auto.js` si avvia da solo: si consuma l'handle che espone, non si richiama start()
-      // (lo farebbe partire una seconda volta, registrando i tool due volte).
+      // `auto.js` starts itself, so use the handle it exposes rather than calling
+      // start() again, which would run it a second time and register everything twice.
       import { ready } from '../packages/browser/dist/cdn/auto.js';
 
-      const stato = document.getElementById('stato');
-      const elenco = document.getElementById('elenco');
+      const status = document.getElementById('status');
+      const list = document.getElementById('list');
 
       try {
         const handle = await ready;
         const tools = handle.tools();
 
-        stato.textContent = tools.length
-          ? `${tools.length} tool registrati su document.modelContext.`
-          : 'Nessun tool: WebMCP non disponibile e polyfill non caricabile.';
+        status.textContent = tools.length
+          ? `${tools.length} tools registered on document.modelContext.`
+          : 'No tools: WebMCP is unavailable and the polyfill would not load.';
 
         for (const tool of tools) {
-          // textContent, non innerHTML: name e description derivano dal markup della
-          // pagina. Il guard toglie i tag, ma una demo che si copia non deve
-          // insegnare a interpolare dati esterni in HTML.
+          // textContent rather than innerHTML: name and description come from the
+          // page markup. The guard strips tags, but a demo people copy should not
+          // teach anyone to interpolate outside data into HTML.
           const li = document.createElement('li');
           const code = document.createElement('code');
           code.textContent = tool.name;
-          li.append(code, ` — ${tool.description}`);
-          elenco.append(li);
+          li.append(code, `: ${tool.description}`);
+          list.append(li);
         }
 
-        // Comodo per ispezionare dalla console.
+        // Handy for poking at it from the console.
         globalThis.agenticschema = handle;
       } catch (err) {
-        stato.textContent = `Avvio fallito: ${err.message}`;
+        status.textContent = `Failed to start: ${err.message}`;
       }
     </script>
   </body>

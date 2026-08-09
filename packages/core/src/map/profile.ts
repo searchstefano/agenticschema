@@ -1,48 +1,46 @@
 import { isRef, type Entity, type EntityGraph, type JsonObject, type JsonValue } from '../types.js';
 
-/** Un tool di lettura da generare per un'entità. */
+/** One read tool to generate for an entity. */
 export interface ReadSpec {
-  /** Suffisso del nome: `slug` "product" + `name` "offer" -> `get_product_offer`. Omesso -> `get_product`. */
+  /** Name suffix: slug "product" plus name "offer" gives `get_product_offer`. Leave out for plain `get_product`. */
   name?: string;
   description: string;
-  /** Prima di leggere, naviga in questa proprietà-riferimento (es. "offers"). */
+  /** Follow this reference property first (`offers`, say) and read what it points at. */
   from?: string;
-  /** Proprietà da includere. Se assente, tutte quelle disponibili. */
+  /** Properties to include. Everything available if omitted. */
   pick?: string[];
-  /** Se la proprietà `from` ha più valori, restituiscili tutti invece del primo. */
+  /** When `from` holds several values, return them all rather than just the first. */
   list?: boolean;
 }
 
 /**
- * Dichiara COSA generare per un tipo. La meccanica (naming, materializzazione,
- * cap, annotazioni) è condivisa e sta nel mapper.
+ * Declares WHAT to generate for a type. The mechanics (naming, materialising,
+ * caps, annotations) are shared and live in the mapper.
  */
 export interface Profile {
-  /** Tipi schema.org coperti, incluse le varianti (es. `['Article','NewsArticle','BlogPosting']`). */
+  /** Schema.org types covered, variants included: `['Article','NewsArticle','BlogPosting']`. */
   types: string[];
-  /** Nome base del tool, in snake_case. */
+  /** Base tool name, snake_case. */
   slug: string;
   read: ReadSpec[];
 }
 
 /**
- * Usato quando nessun profilo copre il tipo, nemmeno risalendo la gerarchia.
- * Garantisce che ogni entità produca comunque qualcosa di utile.
+ * Used when no profile covers the type, not even after walking up the hierarchy.
+ * Guarantees that every entity still yields something usable.
  */
 export function genericProfile(entity: Entity): Profile {
   const type = entity.types[0] ?? 'thing';
   return {
     types: entity.types,
     slug: toSlug(type),
-    // In inglese come le description dei profili: è testo che legge il modello,
-    // su pagine di qualsiasi lingua.
     read: [{ description: `Structured data of type ${type} found on this page.` }],
   };
 }
 
 export const toSlug = (value: string): string =>
   value
-    // Confine di acronimo prima del confine normale, altrimenti `FAQPage` -> `faqpage`.
+    // Acronym boundary before the ordinary one, or `FAQPage` comes out as `faqpage`.
     .replace(/([A-Z]+)([A-Z][a-z])/g, '$1_$2')
     .replace(/([a-z0-9])([A-Z])/g, '$1_$2')
     .toLowerCase()
@@ -50,9 +48,9 @@ export const toSlug = (value: string): string =>
     .replace(/^_+|_+$/g, '');
 
 /**
- * Rende un'entità in JSON semplice, risolvendo i riferimenti fino a `depth`.
- * I cicli sono interrotti da `seen`: senza, un grafo con riferimenti reciproci
- * (comunissimo con `isRelatedTo`) non terminerebbe.
+ * Renders an entity as plain JSON, resolving references down to `depth`.
+ * `seen` is what breaks cycles: without it, a graph with mutual references would
+ * never finish, and `isRelatedTo` produces them constantly.
  */
 export function materialize(
   graph: EntityGraph,
@@ -82,8 +80,8 @@ function render(
         if (!isRef(value)) return value;
         const target = graph.nodes.get(value.ref);
         if (!target || depth <= 0 || seen.has(target.id)) {
-          // Riferimento non risolvibile o già visitato: si conserva l'identificatore,
-          // così l'agente sa che esiste un collegamento senza che il grafo esploda.
+          // Cannot resolve it, or we have been here already. Keep the identifier
+          // so the agent still knows a link exists, without the graph blowing up.
           return target ? { id: target.id } : value.ref;
         }
         return render(graph, target, undefined, depth - 1, new Set(seen));

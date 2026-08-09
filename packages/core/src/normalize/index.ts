@@ -10,24 +10,24 @@ import type {
 } from '../types.js';
 
 export interface NormalizeOptions {
-  /** Base per risolvere gli `@id` relativi (tipicamente l'URL della pagina). */
+  /** Base for resolving relative `@id` values, usually the page URL. */
   baseUrl?: string;
-  /** Profondità massima di annidamento, contro i riferimenti circolari. */
+  /** Maximum nesting depth, the guard against circular references. */
   maxDepth?: number;
 }
 
 const DEFAULT_MAX_DEPTH = 12;
 
-/** Contesti accettati come schema.org: http/https, con o senza www, con o senza slash finale. */
+/** Contexts accepted as schema.org: http or https, with or without www, with or without a trailing slash. */
 const SCHEMA_ORG_CONTEXT = /^https?:\/\/(www\.)?schema\.org\/?$/i;
 
 const isObject = (v: JsonValue | undefined): v is JsonObject =>
   typeof v === 'object' && v !== null && !Array.isArray(v);
 
 /**
- * Trasforma i blob grezzi in un grafo di entità con forma prevedibile:
- * `@graph` appiattito, `@type` sempre array, valori sempre array, entità annidate
- * issate a nodi di primo livello e nodi con lo stesso `@id` fusi.
+ * Turns raw blobs into an entity graph with a predictable shape: `@graph`
+ * flattened, `@type` always an array, values always arrays, nested entities
+ * hoisted to top-level nodes, and nodes sharing an `@id` merged.
  */
 export function normalize(nodes: RawNode[], options: NormalizeOptions = {}): EntityGraph {
   const maxDepth = options.maxDepth ?? DEFAULT_MAX_DEPTH;
@@ -48,7 +48,7 @@ export function normalize(nodes: RawNode[], options: NormalizeOptions = {}): Ent
     }
   };
 
-  /** Fonde un'entità nel grafo: i nodi con lo stesso @id si uniscono invece di sovrascriversi. */
+  /** Folds an entity into the graph. Nodes with the same @id merge rather than overwrite. */
   function upsert(entity: Entity): void {
     const existing = graph.get(entity.id);
     if (!existing) {
@@ -72,7 +72,7 @@ export function normalize(nodes: RawNode[], options: NormalizeOptions = {}): Ent
       return undefined;
     }
 
-    // `@value` -> valore semplice, l'informazione di lingua non serve ai tool
+    // `@value` collapses to a plain value. The language tag is of no use to a tool.
     if ('@value' in data) {
       const v = data['@value'];
       return typeof v === 'string' || typeof v === 'number' || typeof v === 'boolean' ? v : undefined;
@@ -81,7 +81,7 @@ export function normalize(nodes: RawNode[], options: NormalizeOptions = {}): Ent
     const rawId = data['@id'];
     const id = typeof rawId === 'string' ? resolveId(rawId) : nextBlankId();
 
-    // Riferimento puro: `{ "@id": "..." }` senza altre proprietà
+    // A bare reference: `{ "@id": "..." }` and nothing else.
     const keys = Object.keys(data).filter((k) => k !== '@context');
     if (keys.length === 1 && keys[0] === '@id') {
       referenced.add(id);
@@ -111,7 +111,7 @@ export function normalize(nodes: RawNode[], options: NormalizeOptions = {}): Ent
     if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') {
       return value;
     }
-    if (Array.isArray(value)) return undefined; // gli array annidati sono già appiattiti dal chiamante
+    if (Array.isArray(value)) return undefined; // the caller has already flattened nested arrays
     const result = visit(value, format, depth + 1);
     if (result && typeof result === 'object') referenced.add(result.ref);
     return result;
@@ -127,7 +127,7 @@ export function normalize(nodes: RawNode[], options: NormalizeOptions = {}): Ent
       });
     }
 
-    // `@graph` appiattito qui, non in extract: extract raccoglie, normalize interpreta.
+    // `@graph` gets flattened here rather than in extract: extract gathers, normalize interprets.
     const graphValue = node.data['@graph'];
     const items = Array.isArray(graphValue)
       ? graphValue.filter(isObject)
@@ -145,8 +145,8 @@ export function normalize(nodes: RawNode[], options: NormalizeOptions = {}): Ent
 
   return {
     nodes: graph,
-    // Se tutto risulta referenziato (grafi ciclici) si ripiega sui nodi di primo livello,
-    // altrimenti il chiamante resterebbe senza punto di ingresso.
+    // When everything turns out to be referenced, which cyclic graphs do, fall
+    // back to the top-level nodes, or the caller is left with no way in.
     roots: roots.length ? [...new Set(roots)] : [...new Set(topLevel)],
     diagnostics,
   };

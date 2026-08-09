@@ -3,22 +3,22 @@ import { StdioServerTransport } from '@modelcontextprotocol/server/stdio';
 import { createServer } from './index.js';
 
 const USAGE = `
-agenticschema — espone lo Schema.org di una pagina come server MCP
+agenticschema: serve a page's Schema.org markup as an MCP server
 
-  npx @agenticschema/server <url> [<url>...] [opzioni]
+  npx @agenticschema/server <url> [<url>...] [options]
 
-Opzioni
-  --max-tools <n>     tetto sui tool generati (default 24)
-  --no-actions        non generare tool eseguibili da potentialAction
-  --allow-host <host> host aggiuntivo ammesso per le azioni (ripetibile)
-  --quiet             non stampare la diagnostica su stderr
+Options
+  --max-tools <n>     cap on generated tools (default 24)
+  --no-actions        do not build executable tools from potentialAction
+  --allow-host <host> extra host allowed for actions (repeatable)
+  --quiet             keep diagnostics off stderr
 
-Esempio di configurazione in claude_desktop_config.json:
+Example entry for claude_desktop_config.json:
 
   { "mcpServers": {
-      "negozio": {
+      "shop": {
         "command": "npx",
-        "args": ["-y", "@agenticschema/server", "https://esempio.test/prodotto"]
+        "args": ["-y", "@agenticschema/server", "https://example.test/product"]
       } } }
 `;
 
@@ -47,7 +47,7 @@ function parseArgs(argv: readonly string[]): Args {
       process.stdout.write(USAGE);
       process.exit(0);
     } else if (arg.startsWith('-')) {
-      throw new Error(`opzione sconosciuta: ${arg}`);
+      throw new Error(`unknown option: ${arg}`);
     } else {
       args.urls.push(arg);
     }
@@ -68,8 +68,9 @@ const { server, tools, diagnostics } = await createServer(args.urls, {
 });
 
 if (!args.quiet) {
-  // Sempre su stderr: stdout è il canale del protocollo.
-  process.stderr.write(`agenticschema: ${tools.length} tool da ${args.urls.length} pagina/e\n`);
+  // Always stderr. stdout belongs to the protocol.
+  const pages = args.urls.length === 1 ? '1 page' : `${args.urls.length} pages`;
+  process.stderr.write(`agenticschema: ${tools.length} tools from ${pages}\n`);
   for (const tool of tools) process.stderr.write(`  - ${tool.name}\n`);
   for (const d of diagnostics) {
     if (d.level !== 'info') process.stderr.write(`  [${d.level}] ${d.message}\n`);

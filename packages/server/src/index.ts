@@ -13,7 +13,7 @@ import { schemaOrgProfiles } from '@agenticschema/profiles';
 
 export interface PageSource {
   url: string;
-  /** HTML già in mano. Se assente viene scaricato. */
+  /** HTML you already have. Fetched if absent. */
   html?: string;
 }
 
@@ -30,11 +30,11 @@ export interface CreatedServer {
 }
 
 /**
- * Costruisce un server MCP dalle pagine indicate.
+ * Builds an MCP server from the given pages.
  *
- * A differenza dell'adapter browser, qui i **Resources MCP sono disponibili**:
- * le entità vengono esposte sia come tool sia come risorse leggibili, ed è un
- * vantaggio concreto di questo percorso che non va sprecato.
+ * MCP resources are available on this path, unlike in the browser, so entities
+ * are exposed both as tools and as readable resources. That is a real advantage
+ * of running server-side and it would be a shame to waste it.
  */
 export async function createServer(
   sources: readonly (PageSource | string)[],
@@ -64,7 +64,7 @@ export async function createServer(
     });
     diagnostics.push(...result.diagnostics);
 
-    // Con più pagine i nomi vanno separati, altrimenti due prodotti collidono.
+    // With several pages the names need separating, or two products collide.
     const prefix = multi ? `${toSlug(new URL(page.url).hostname)}_` : '';
 
     for (const tool of result.tools) {
@@ -75,9 +75,9 @@ export async function createServer(
         name,
         {
           description: tool.description,
-          // JSON Schema raw: nessuna conversione a Zod, l'SDK v2 lo accetta così.
-          // Il parametro di tipo va esplicitato: senza, lo schema è `unknown` e
-          // TypeScript ripiega sull'overload legacy che pretende Zod.
+          // Raw JSON Schema, no conversion to Zod: the v2 SDK takes it as is.
+          // The type parameter has to be spelled out. Without it the schema is
+          // `unknown` and TypeScript falls back to the legacy Zod overload.
           inputSchema: fromJsonSchema<Record<string, unknown>>(tool.inputSchema, validator),
           annotations: tool.annotations,
         },
@@ -121,8 +121,8 @@ async function fetchHtml(
   timeoutMs = DEFAULT_TIMEOUT_MS
 ): Promise<string> {
   const doFetch = fetchImpl ?? globalThis.fetch;
-  // Senza timeout una pagina che non risponde blocca l'avvio del server, e con
-  // stdio l'agente resta appeso senza alcun messaggio.
+  // A page that never answers would otherwise block startup, and over stdio the
+  // agent just hangs with nothing to show for it.
   const response = await doFetch(url, {
     headers: { accept: 'text/html,application/xhtml+xml', 'user-agent': 'agenticschema' },
     signal: AbortSignal.timeout(timeoutMs),
@@ -131,7 +131,7 @@ async function fetchHtml(
   return response.text();
 }
 
-/** happy-dom dà un DOM vero, quindi qui microdata e RDFa funzionano (dalla stringa no). */
+/** happy-dom gives a real DOM, so microdata and RDFa work here. From a string they do not. */
 export function parseDocument(html: string): Document {
   const window = new Window();
   window.document.write(html);

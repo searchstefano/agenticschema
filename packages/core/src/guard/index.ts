@@ -1,39 +1,39 @@
 import type { Diagnostic, ToolDescriptor } from '../types.js';
 
 /**
- * Il core prende contenuto di pagina e lo mette nel contesto di un modello.
- * Sono due canali di attacco concreti, non teorici:
+ * The core takes page content and puts it in front of a model. That opens two
+ * concrete attack channels, not theoretical ones:
  *
- *  1. Prompt injection. Un blocco `ld+json` iniettato via UGC o CMS compromesso
- *     può contenere istruzioni rivolte all'agente. Difesa: il testo di pagina non
- *     entra mai nelle ISTRUZIONI del tool, solo nei DATI restituiti; e i dati
- *     vengono ripuliti e limitati.
- *  2. Payload sproporzionati. Una pagina con migliaia di entità può saturare il
- *     contesto dell'agente. Difesa: tetto sui byte restituiti.
+ *  1. Prompt injection. An `ld+json` block injected through user content or a
+ *     compromised CMS can carry instructions aimed at the agent. The defence:
+ *     page text never reaches a tool's INSTRUCTIONS, only the DATA it returns,
+ *     and that data gets cleaned and capped.
+ *  2. Oversized payloads. A page with thousands of entities can swamp an
+ *     agent's context. The defence: a ceiling on the bytes handed back.
  */
 export interface GuardOptions {
-  /** Lunghezza massima di una description di tool. */
+  /** Longest a tool description may be. */
   maxDescriptionLength?: number;
-  /** Tetto sui byte del payload restituito da un tool. */
+  /** Ceiling on the bytes a tool may return. */
   maxPayloadBytes?: number;
 }
 
 const DEFAULT_MAX_DESCRIPTION = 320;
 const DEFAULT_MAX_PAYLOAD = 32_000;
 
-/** Nomi ammessi dalla specifica MCP. */
+/** Names the MCP spec allows. */
 const VALID_TOOL_NAME = /^[a-zA-Z0-9_-]{1,64}$/;
 
-// Escape espliciti: un carattere di controllo letterale nel sorgente è invisibile in
-// review e si perde al primo copia-incolla. C0 + DEL + C1: dove vivono le
-// sequenze ANSI e i separatori di record.
+// Written as escapes on purpose: a literal control character in source is
+// invisible in review and does not survive the first copy-paste. C0 + DEL + C1,
+// which is where ANSI sequences and record separators live.
 const CONTROL_CHARS = /[\u0000-\u001f\u007f-\u009f]/g;
 const HTML_TAG = /<[^>]*>/g;
 
 /**
- * Ripulisce testo proveniente dalla pagina.
- * I tag HTML spariscono (sono il veicolo più comune per nascondere istruzioni a
- * un lettore umano ma non al modello) insieme ai caratteri di controllo.
+ * Cleans text that came off the page. HTML tags go, since they are the usual
+ * way to hide instructions from a human reader but not from the model, and so
+ * do control characters.
  */
 export function sanitizeText(value: string, maxLength = DEFAULT_MAX_DESCRIPTION): string {
   const clean = value
@@ -45,8 +45,8 @@ export function sanitizeText(value: string, maxLength = DEFAULT_MAX_DESCRIPTION)
 }
 
 /**
- * Ultimo passaggio prima degli adapter: nomi validi, description ripulite,
- * payload limitati. Vale per ogni adapter perché sta nel core.
+ * Last stop before the adapters: valid names, cleaned descriptions, capped
+ * payloads. It lives in the core, so every adapter gets it for free.
  */
 export function guardTools(
   tools: readonly ToolDescriptor[],
@@ -100,18 +100,18 @@ function capPayload(text: string, maxBytes: number): string {
   if (byteLength(clean) <= maxBytes) return clean;
 
   const notice = `\n… [truncated: content exceeded ${maxBytes} bytes]`;
-  // Il budget è ciò che resta dopo l'avviso e non può andare sotto zero: con un
-  // maxBytes più piccolo dell'avviso stesso, un budget negativo non sarebbe mai
-  // raggiungibile e il ciclo di taglio non terminerebbe.
+  // The budget is whatever is left after the notice, and it must not go below
+  // zero: with a maxBytes smaller than the notice itself, a negative target
+  // could never be reached and the trimming loop would spin forever.
   const budget = Math.max(0, maxBytes - byteLength(notice));
 
-  // Si taglia per caratteri e si misura in byte, così un code point non viene spezzato.
+  // Trim by characters, measure in bytes, so a code point never gets split.
   let cut = clean.slice(0, budget);
   while (cut.length > 0 && byteLength(cut) > budget) cut = cut.slice(0, -1);
 
   return cut + notice;
 }
 
-// `Buffer` non esiste nel browser: il core deve restare isomorfo.
+// `Buffer` does not exist in the browser and the core has to stay isomorphic.
 const encoder = new TextEncoder();
 const byteLength = (value: string): number => encoder.encode(value).length;

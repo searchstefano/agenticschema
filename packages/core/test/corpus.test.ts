@@ -5,14 +5,14 @@ import { describe, expect, it } from 'vitest';
 import { toTools, type ToolDescriptor } from '../src/index.js';
 
 /**
- * Corpus di markup "sporco": `@context` in http, `mainEntity` come stringa invece
- * che come nodo, decine di entità dello stesso tipo, annidamento profondo. Sono
- * le patologie che il web reale ha e che una fixture scritta di getto non ha.
+ * A corpus of messy markup: `@context` over http, `mainEntity` as a string
+ * rather than a node, dozens of entities of one type, deep nesting. These are
+ * the things real pages do and a fixture written from scratch never does.
  *
- * Quelle committate sono sintetiche di proposito: il JSON-LD di un sito vero è
- * contenuto di quel sito, e ridistribuirlo in un repo pubblico non è nostro
- * diritto. `npm run corpus:fetch` scarica pagine reali in `fixtures/local/`, che
- * non è tracciata: chi vuole verificare contro il web vero lo fa in locale.
+ * The committed ones are synthetic on purpose. A live site's JSON-LD is that
+ * site's content and this repo has no right to redistribute it.
+ * `npm run corpus:fetch` pulls real pages into `fixtures/local/`, which is not
+ * tracked, so anyone who wants to check against the live web does it locally.
  */
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), 'fixtures');
 const LOCAL = join(ROOT, 'local');
@@ -32,11 +32,11 @@ const files = [...jsonldIn(ROOT), ...jsonldIn(LOCAL)];
 const pageFor = (file: string): string =>
   `<script type="application/ld+json">${readFileSync(file, 'utf8')}</script>`;
 
-/** Vincoli che i client MCP impongono davvero ai tool. */
+/** Constraints MCP clients actually enforce on tool names. */
 const MCP_TOOL_NAME = /^[a-zA-Z0-9_-]{1,64}$/;
 
-describe('corpus da pagine reali', () => {
-  it('il corpus non è vuoto', () => {
+describe('corpus of messy markup', () => {
+  it('the corpus is not empty', () => {
     expect(files.length).toBeGreaterThan(0);
   });
 
@@ -44,18 +44,18 @@ describe('corpus da pagine reali', () => {
     describe(file.split('/').pop()?.replace('.jsonld.json', '') ?? file, () => {
       const result = toTools(pageFor(file), { baseUrl: 'https://esempio.test/pagina' });
 
-      it('produce tool senza andare in errore', () => {
+      it('produces tools without erroring', () => {
         expect(result.tools.length).toBeGreaterThan(0);
         expect(result.diagnostics.filter((d) => d.level === 'error')).toEqual([]);
       });
 
-      it('genera nomi accettati dalla specifica MCP e senza duplicati', () => {
+      it('generates names the MCP spec accepts, with no duplicates', () => {
         const names = result.tools.map((t) => t.name);
         for (const name of names) expect(name).toMatch(MCP_TOOL_NAME);
         expect(new Set(names).size).toBe(names.length);
       });
 
-      it('ogni tool ha una description utile e uno schema valido', () => {
+      it('every tool has a usable description and a valid schema', () => {
         for (const tool of result.tools) {
           expect(tool.description.length).toBeGreaterThan(10);
           expect(tool.inputSchema.type).toBe('object');
@@ -63,7 +63,7 @@ describe('corpus da pagine reali', () => {
         }
       });
 
-      it('ogni tool restituisce JSON valido e non vuoto', async () => {
+      it('every tool returns valid, non-empty JSON', async () => {
         for (const tool of result.tools as ToolDescriptor[]) {
           const out = await tool.execute({});
           const text = out.content[0]?.text ?? '';
@@ -72,7 +72,7 @@ describe('corpus da pagine reali', () => {
         }
       });
 
-      it('rispetta il tetto sui tool', () => {
+      it('stays within the tool cap', () => {
         expect(result.tools.length).toBeLessThanOrEqual(24);
       });
     });

@@ -12,13 +12,13 @@ export interface PipelineOptions
     ActionOptions,
     GuardOptions {
   /**
-   * Tool dichiarati dal proprietario del sito. Sono la via per tutto ciò che
-   * l'auto-derivazione non può dare: azioni con effetti, endpoint privati,
-   * qualunque cosa non sia descritta da `potentialAction`.
-   * In caso di collisione di nome vincono sui generati.
+   * Tools declared by the site owner. This is the way in for everything
+   * auto-derivation cannot give you: actions with side effects, private
+   * endpoints, anything `potentialAction` does not describe.
+   * On a name clash these win over the generated ones.
    */
   custom?: readonly CustomTool[];
-  /** `off` disattiva del tutto la generazione di azioni. */
+  /** `off` disables action generation entirely. */
   actions?: 'auto' | 'off';
 }
 
@@ -27,7 +27,7 @@ export interface CustomTool {
   description: string;
   inputSchema?: JsonSchemaObject;
   execute: (args: Record<string, unknown>) => ToolResult | Promise<ToolResult>;
-  /** Default `readOnlyHint: false`: chi dichiara un tool a mano di solito fa qualcosa. */
+  /** Defaults to `readOnlyHint: false`, since someone declaring a tool by hand usually means it to do something. */
   annotations?: Partial<ToolDescriptor['annotations']>;
 }
 
@@ -38,16 +38,16 @@ export interface PipelineResult {
 }
 
 /**
- * Da una pagina ai descrittori di tool, con i controlli di sicurezza applicati.
- * È la funzione che usano entrambi gli adapter: la differenza fra browser e
- * server sta solo in cosa si passa come `source` e in come si registrano i tool.
+ * From a page to tool descriptors, with the safety checks applied.
+ * Both adapters call this. The only difference between browser and server is
+ * what you hand in as `source` and how the tools get registered afterwards.
  */
 export function toTools(source: Document | string, options: PipelineOptions = {}): PipelineResult {
   const extracted = extract(source, options);
   const graph = normalize(extracted.nodes, options);
 
-  // Senza pageOrigin esplicito si prova a dedurlo da baseUrl: senza uno dei due
-  // le azioni non vengono generate affatto (nessun modo di validare la destinazione).
+  // With no explicit pageOrigin, try to derive it from baseUrl. Without either,
+  // no action tools are generated at all, because there is no way to vet the destination.
   const pageOrigin = options.pageOrigin ?? originOf(options.baseUrl);
 
   const read = mapToTools(graph, options);
@@ -75,7 +75,7 @@ export function toTools(source: Document | string, options: PipelineOptions = {}
   };
 }
 
-/** Normalizza un tool dichiarato a mano nella forma interna. */
+/** Puts a hand-declared tool into the shape the rest of the pipeline expects. */
 export function defineTool(tool: CustomTool): ToolDescriptor {
   return {
     name: tool.name,

@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { Window } from 'happy-dom';
 import { extract, normalize, isRef, type Entity, type EntityGraph } from '../src/index.js';
 
-/** Scorciatoia: HTML -> grafo, il percorso che useranno gli adapter. */
+/** Shortcut from HTML to graph, the path the adapters take. */
 const graphOf = (html: string, baseUrl?: string): EntityGraph =>
   normalize(extract(html).nodes, baseUrl ? { baseUrl } : {});
 
@@ -20,7 +20,7 @@ const byType = (graph: EntityGraph, type: string): Entity | undefined =>
 // ---------------------------------------------------------------------------
 
 describe('extract', () => {
-  it('legge più blocchi ld+json dalla stessa pagina', () => {
+  it('reads several ld+json blocks from one page', () => {
     const { nodes } = extract(
       ldScript('{"@type":"Product","name":"A"}') + ldScript('{"@type":"WebSite","name":"B"}')
     );
@@ -28,7 +28,7 @@ describe('extract', () => {
     expect(nodes.every((n) => n.format === 'jsonld')).toBe(true);
   });
 
-  it('salta un blocco malformato senza perdere gli altri', () => {
+  it('skips a malformed block without losing the others', () => {
     const { nodes, diagnostics } = extract(
       ldScript('{ questo non è json }') + ldScript('{"@type":"Product","name":"buono"}')
     );
@@ -36,18 +36,18 @@ describe('extract', () => {
     expect(diagnostics.map((d) => d.code)).toContain('json-parse-error');
   });
 
-  it('accetta un array JSON-LD al primo livello', () => {
+  it('accepts a JSON-LD array at the top level', () => {
     const { nodes } = extract(ldScript('[{"@type":"Product"},{"@type":"Offer"}]'));
     expect(nodes).toHaveLength(2);
   });
 
-  it('segnala quando non c-è alcun dato strutturato', () => {
+  it('says so when there is no structured data', () => {
     const { nodes, diagnostics } = extract('<p>niente</p>');
     expect(nodes).toHaveLength(0);
     expect(diagnostics.map((d) => d.code)).toContain('no-structured-data');
   });
 
-  it('estrae microdata da un Document', () => {
+  it('extracts microdata from a Document', () => {
     const doc = docOf(`
       <div itemscope itemtype="https://schema.org/Product">
         <span itemprop="name">Zaino Trekking 45L</span>
@@ -63,10 +63,10 @@ describe('extract', () => {
     expect(byType(graph, 'Offer')?.props['price']).toEqual(['129.90']);
   });
 
-  it('ignora i vocabolari RDFa che non sono schema.org', () => {
-    // Regressione: RDFa è generico e MediaWiki lo usa per annotare il proprio
-    // markup. Una pagina di Wikipedia contiene oltre 160 typeof="mw:*" e finivano
-    // tutti nel grafo: su quel caso reale erano 11 tool di spazzatura su 14.
+  it('ignores RDFa terms from other vocabularies', () => {
+    // RDFa is generic and MediaWiki uses it to annotate its own markup. A single
+    // Wikipedia article carries over 160 typeof="mw:*" attributes, and none of
+    // them describe anything worth exposing.
     const doc = docOf(`
       <span typeof="mw:Entity">&amp;</span>
       <div typeof="mw:Transclusion mw:Extension/templatestyles"></div>
@@ -85,7 +85,7 @@ describe('extract', () => {
     expect(product?.props['internalNote']).toBeUndefined();
   });
 
-  it('riconosce schema.org in tutte le forme in cui viene scritto', () => {
+  it('recognises schema.org however it is written', () => {
     const forme = ['Product', 'schema:Product', 'https://schema.org/Product', 'http://schema.org/Product'];
     for (const form of forme) {
       const graph = normalize(extract(docOf(`<div typeof="${form}"></div>`), { formats: ['rdfa'] }).nodes);
@@ -93,7 +93,7 @@ describe('extract', () => {
     }
   });
 
-  it('estrae RDFa da un Document', () => {
+  it('extracts RDFa from a Document', () => {
     const doc = docOf(`
       <div typeof="schema:Product">
         <span property="name">Zaino Trekking 45L</span>
@@ -107,7 +107,7 @@ describe('extract', () => {
 });
 
 describe('normalize', () => {
-  it('appiattisce @graph', () => {
+  it('flattens @graph', () => {
     const graph = graphOf(
       ldScript('{"@context":"https://schema.org","@graph":[{"@type":"Product"},{"@type":"Offer"}]}')
     );
@@ -115,14 +115,14 @@ describe('normalize', () => {
     expect(graph.roots).toHaveLength(2);
   });
 
-  it('tratta @type singolo e array allo stesso modo', () => {
+  it('treats a single @type and an array the same way', () => {
     const single = graphOf(ldScript('{"@type":"Product","name":"A"}'));
     const multi = graphOf(ldScript('{"@type":["Product","IndividualProduct"],"name":"A"}'));
     expect(byType(single, 'Product')?.types).toEqual(['Product']);
     expect(byType(multi, 'Product')?.types).toEqual(['Product', 'IndividualProduct']);
   });
 
-  it('rimuove il prefisso di vocabolario da tipi e proprietà', () => {
+  it('strips the vocabulary prefix from types and properties', () => {
     const graph = graphOf(
       ldScript('{"@type":"https://schema.org/Product","https://schema.org/name":"A"}')
     );
@@ -131,7 +131,7 @@ describe('normalize', () => {
     expect(product?.props['name']).toEqual(['A']);
   });
 
-  it('accetta il @context sia http sia https, e segnala quelli sconosciuti', () => {
+  it('accepts @context over http or https, and flags ones it does not know', () => {
     expect(graphOf(ldScript('{"@context":"http://schema.org","@type":"Product"}')).diagnostics)
       .toHaveLength(0);
     expect(graphOf(ldScript('{"@context":"http://www.schema.org/","@type":"Product"}')).diagnostics)
@@ -143,14 +143,14 @@ describe('normalize', () => {
     ).toContain('unknown-context');
   });
 
-  it('normalizza i valori singoli in array', () => {
+  it('turns single values into arrays', () => {
     const graph = graphOf(ldScript('{"@type":"Product","name":"A","keywords":["x","y"]}'));
     const product = byType(graph, 'Product');
     expect(product?.props['name']).toEqual(['A']);
     expect(product?.props['keywords']).toEqual(['x', 'y']);
   });
 
-  it('issa le entità annidate a nodi e lascia un riferimento', () => {
+  it('hoists nested entities into nodes and leaves a reference behind', () => {
     const graph = graphOf(
       ldScript('{"@type":"Product","name":"A","offers":{"@type":"Offer","price":"129.90"}}')
     );
@@ -160,11 +160,11 @@ describe('normalize', () => {
 
     const offer = graph.nodes.get(isRef(offerValue!) ? offerValue.ref : '');
     expect(offer?.props['price']).toEqual(['129.90']);
-    // solo il Product è radice: l'Offer è referenziata
+    // Only the Product is a root. The Offer is referenced, so it is not.
     expect(graph.roots).toEqual([product?.id]);
   });
 
-  it('fonde due nodi con lo stesso @id invece di sovrascriverli', () => {
+  it('merges two nodes sharing an @id instead of overwriting one', () => {
     const graph = graphOf(
       ldScript('{"@type":"Product","@id":"#p","name":"A"}') +
         ldScript('{"@type":"IndividualProduct","@id":"#p","sku":"ZT-45-BLU"}')
@@ -176,19 +176,19 @@ describe('normalize', () => {
     expect(product?.props['sku']).toEqual(['ZT-45-BLU']);
   });
 
-  it('risolve gli @id relativi contro baseUrl', () => {
+  it('resolves relative @id values against baseUrl', () => {
     const graph = graphOf(ldScript('{"@type":"Product","@id":"#p"}'), 'https://esempio.test/scarpe');
     expect([...graph.nodes.keys()]).toEqual(['https://esempio.test/scarpe#p']);
   });
 
-  it('riduce un oggetto @value al suo valore', () => {
+  it('collapses an @value object down to its value', () => {
     const graph = graphOf(
       ldScript('{"@type":"Product","name":{"@value":"Zaino","@language":"it"}}')
     );
     expect(byType(graph, 'Product')?.props['name']).toEqual(['Zaino']);
   });
 
-  it('risolve un riferimento puro {"@id"} senza creare un nodo vuoto', () => {
+  it('resolves a bare {"@id"} reference without creating an empty node', () => {
     const graph = graphOf(
       ldScript(
         '{"@context":"https://schema.org","@graph":[' +
@@ -201,8 +201,8 @@ describe('normalize', () => {
     expect(byType(graph, 'Offer')?.props['price']).toEqual(['129.90']);
   });
 
-  it('tronca i riferimenti circolari invece di andare in stack overflow', () => {
-    // Ciclo materializzato per annidamento (non per @id): senza guard sarebbe infinito.
+  it('truncates circular references instead of blowing the stack', () => {
+    // A cycle built out of nesting rather than @id. Without the depth guard this never ends.
     const depth = 40;
     let json = '{"@type":"Thing","name":"foglia"}';
     for (let i = 0; i < depth; i++) json = `{"@type":"Thing","subject":${json}}`;
@@ -212,7 +212,7 @@ describe('normalize', () => {
     expect(graph.nodes.size).toBeLessThan(depth);
   });
 
-  it('non lascia il grafo senza radici quando tutto è referenziato', () => {
+  it('still finds roots when everything turns out to be referenced', () => {
     const graph = graphOf(
       ldScript('{"@context":"https://schema.org","@graph":[{"@type":"Product","@id":"#p","isRelatedTo":{"@id":"#p"}}]}')
     );

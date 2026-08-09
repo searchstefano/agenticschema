@@ -150,7 +150,7 @@
       <h1>agenticschema playground</h1>
       <p>
         Paste a page's HTML (or just its JSON-LD). See exactly which MCP tools it would expose to
-        an agent — and which actions get rejected, and why.
+        an agent, and which actions get rejected, and why.
       </p>
     </header>
 
@@ -174,9 +174,10 @@
     </main>
 
     <!--
-      Il build npm tiene i pacchetti vicini come external, quindi `profiles` importa
-      `@agenticschema/core` come specifier bare. Il browser non sa risolverlo da solo:
-      lo fa la import map. In produzione basterebbe il bundle CDN, autosufficiente.
+      The npm build keeps sibling packages external, so `profiles` imports
+      `@agenticschema/core` as a bare specifier. A browser cannot resolve that on
+      its own, hence the import map. In production the self-contained CDN bundle
+      needs none of this.
     -->
     <script type="importmap">
       {
@@ -269,7 +270,7 @@
         }
 
         if (result.tools.length === 0) {
-          output.innerHTML = '<p class="empty">No tools — no structured data found.</p>';
+          output.innerHTML = '<p class="empty">No tools, no structured data found.</p>';
         } else {
           const blocks = await Promise.all(
             result.tools.map(async (tool) => {
@@ -289,7 +290,7 @@
           output.innerHTML = blocks.join('');
         }
 
-        // I diagnostici sono la parte istruttiva: dicono cosa è stato SCARTATO e perché.
+        // The diagnostics are the instructive part: they say what was SKIPPED and why.
         const notable = result.diagnostics.filter((d) => d.code !== 'no-structured-data');
         diagnostics.innerHTML = notable.length
           ? `<h2>Skipped</h2>${notable

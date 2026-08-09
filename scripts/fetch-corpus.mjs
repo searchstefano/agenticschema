@@ -1,18 +1,19 @@
 /**
- * Rigenera il corpus di test da pagine pubbliche reali.
+ * Refreshes the test corpus from real public pages.
  *
  *   node scripts/fetch-corpus.mjs
  *
- * Si salva solo il JSON-LD, non la pagina: è il metadato pubblico che serve al
- * test, pesa poco ed è leggibile in review. Le fixture sono committate perché la
- * suite non deve dipendere dalla rete né dal fatto che un sito cambi markup.
+ * Only the JSON-LD is saved, never the page: that is the public metadata the
+ * tests need, it stays small, and it can be read in review. Output lands in
+ * `fixtures/local/`, which is untracked, because a site's JSON-LD is that site's
+ * content and this repo has no business redistributing it.
  */
 import { writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 const OUT = 'packages/core/test/fixtures/local';
 
-/** Scelte per varietà di tipi, non per popolarità. */
+/** Picked for the variety of types they carry, not for their traffic. */
 const PAGES = [
   ['wikipedia', 'https://en.wikipedia.org/wiki/Backpack'],
   ['bbc', 'https://www.bbc.com/news'],
@@ -28,13 +29,13 @@ for (const [name, url] of PAGES) {
       signal: AbortSignal.timeout(20_000),
     });
     if (!response.ok) {
-      console.warn(`${name}: HTTP ${response.status}, saltato`);
+      console.warn(`${name}: HTTP ${response.status}, skipped`);
       continue;
     }
     const html = await response.text();
     const blocks = [...html.matchAll(LD_JSON)].map((m) => m[1].trim());
     if (blocks.length === 0) {
-      console.warn(`${name}: nessun ld+json, saltato`);
+      console.warn(`${name}: no ld+json, skipped`);
       continue;
     }
 
@@ -42,15 +43,15 @@ for (const [name, url] of PAGES) {
       try {
         return JSON.parse(b);
       } catch {
-        // Un blocco rotto è dato prezioso per il corpus: si conserva com'è.
+        // A broken block is valuable corpus material, so it is kept exactly as found.
         return { __nonParsabile: b.slice(0, 400) };
       }
     });
 
     const file = join(OUT, `${name}.jsonld.json`);
     writeFileSync(file, `${JSON.stringify(parsed.length === 1 ? parsed[0] : parsed, null, 2)}\n`);
-    console.log(`${name}: ${blocks.length} blocchi -> ${file}`);
+    console.log(`${name}: ${blocks.length} blocks -> ${file}`);
   } catch (err) {
-    console.warn(`${name}: ${err.message}, saltato`);
+    console.warn(`${name}: ${err.message}, skipped`);
   }
 }

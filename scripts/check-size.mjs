@@ -1,12 +1,12 @@
 /**
- * Fa fallire la CI se il payload iniziale del tag script supera il budget.
+ * Fails the build when the initial script-tag payload goes over budget.
  *
- * "Leggero" era la premessa del progetto: senza un test che la difenda, la
- * prima dipendenza comoda la fa evaporare senza che nessuno se ne accorga.
+ * "Lightweight" was the premise of the project. Without a test defending it, the
+ * first convenient dependency makes it quietly untrue.
  *
- * Si misura solo ciò che il browser scarica PRIMA di poter registrare i tool:
- * l'entry e i chunk che importa staticamente. I profili e il polyfill sono
- * dietro `import()` dinamico e arrivano dopo, quindi non contano.
+ * Only what the browser downloads BEFORE it can register any tool counts here:
+ * the entry and the chunks it imports statically. Profiles and the polyfill sit
+ * behind a dynamic `import()` and arrive later, so they are excluded.
  */
 import { gzipSync } from 'node:zlib';
 import { readFileSync, existsSync, readdirSync } from 'node:fs';
@@ -17,11 +17,11 @@ const CDN_DIR = 'packages/browser/dist/cdn';
 const ENTRY = join(CDN_DIR, 'auto.js');
 
 if (!existsSync(ENTRY)) {
-  console.error(`${ENTRY} non esiste: lanciare prima "npm run build".`);
+  console.error(`${ENTRY} is missing. Run "npm run build" first.`);
   process.exit(1);
 }
 
-/** Import statici, ricorsivamente. `import(...)` dinamico è escluso di proposito. */
+/** Static imports, followed recursively. Dynamic `import(...)` is excluded on purpose. */
 const STATIC_IMPORT = /(?:^|[;\s}])(?:import|export)\s*(?:[\s\S]*?\sfrom\s*)?["']([^"']+)["']/g;
 
 function collectStatic(entry, seen = new Set()) {
@@ -48,15 +48,15 @@ const total = (files) => files.reduce((n, f) => n + gzip(f), 0);
 const initialBytes = total(initial);
 const lazyBytes = total(lazy);
 
-console.log('payload iniziale:');
+console.log('initial payload:');
 for (const f of initial) console.log(`  ${f.padEnd(42)} ${String(gzip(f)).padStart(6)} B gzip`);
-console.log('caricato dopo (import dinamico):');
+console.log('loaded later, on dynamic import:');
 for (const f of lazy) console.log(`  ${f.padEnd(42)} ${String(gzip(f)).padStart(6)} B gzip`);
 
-console.log(`\niniziale ${initialBytes} B / budget ${BUDGET_BYTES} B  (lazy: ${lazyBytes} B)`);
+console.log(`\ninitial ${initialBytes} B / budget ${BUDGET_BYTES} B  (lazy: ${lazyBytes} B)`);
 
 if (initialBytes > BUDGET_BYTES) {
-  console.error(`\nBUDGET SFORATO di ${initialBytes - BUDGET_BYTES} byte gzip.`);
+  console.error(`\nOVER BUDGET by ${initialBytes - BUDGET_BYTES} gzipped bytes.`);
   process.exit(1);
 }
-console.log(`OK: ${BUDGET_BYTES - initialBytes} byte di margine.`);
+console.log(`OK: ${BUDGET_BYTES - initialBytes} bytes to spare.`);

@@ -11,16 +11,17 @@ import { isRef, type Diagnostic, type Entity, type EntityGraph, type ToolDescrip
 export { type Profile, type ReadSpec, genericProfile, materialize, toSlug } from './profile.js';
 
 export interface MapOptions {
-  /** Registry dei profili. Senza, ogni entità ricade sul profilo generico. */
+  /** The profile registry. Without it every entity falls back to the generic profile. */
   profiles?: Profile[];
   /**
-   * Risolve gli antenati di un tipo schema.org (fornito da `@agenticschema/profiles`).
-   * Permette a `Vehicle` di usare il profilo di `Product` senza doverlo dichiarare.
+   * Resolves the ancestors of a Schema.org type. `@agenticschema/profiles`
+   * supplies this, and it lets `Vehicle` use the `Product` profile without
+   * anyone having to declare that.
    */
   ancestorsOf?: (type: string) => string[];
   /**
-   * Tetto al numero di tool. Gli agenti degradano con toolset grandi, e una pagina
-   * con 200 prodotti non deve generare 200 tool.
+   * Ceiling on how many tools to generate. Agents get worse as a toolset grows,
+   * and a page listing 200 products has no business producing 200 tools.
    */
   maxTools?: number;
 }
@@ -32,15 +33,15 @@ export interface MapResult {
 
 const DEFAULT_MAX_TOOLS = 24;
 
-/** Trasforma il grafo in descrittori di tool di lettura. Nessun effetto collaterale. */
+/** Turns the graph into read-tool descriptors. Nothing here has side effects. */
 export function mapToTools(graph: EntityGraph, options: MapOptions = {}): MapResult {
   const maxTools = options.maxTools ?? DEFAULT_MAX_TOOLS;
   const diagnostics: Diagnostic[] = [];
   const tools: ToolDescriptor[] = [];
   const usedNames = new Set<string>();
 
-  // L'entità primaria va per prima: se si tocca il cap, i tool che restano
-  // sono quelli che descrivono il soggetto della pagina, non il contorno.
+  // The primary entity goes first. If the cap does bite, what survives should
+  // describe the subject of the page rather than the furniture around it.
   const primaryId = selectPrimary(graph);
   const ordered = [
     ...(primaryId ? [primaryId] : []),
@@ -48,8 +49,8 @@ export function mapToTools(graph: EntityGraph, options: MapOptions = {}): MapRes
     ...[...graph.nodes.keys()].filter((id) => id !== primaryId && !graph.roots.includes(id)),
   ];
 
-  // Un'entità raggiunta dal `from` di un'altra è già esposta da quel tool: darle
-  // anche un tool proprio duplicherebbe gli stessi dati e consumerebbe il budget.
+  // An entity reached through another entity's `from` is already on show through
+  // that tool. Giving it one of its own repeats the same data and eats budget.
   const profiles = new Map<string, Profile>();
   const consumed = new Set<string>();
   for (const id of ordered) {
@@ -58,8 +59,8 @@ export function mapToTools(graph: EntityGraph, options: MapOptions = {}): MapRes
     const profile = resolveProfile(entity, options) ?? genericProfile(entity);
     profiles.set(id, profile);
     for (const spec of profile.read) {
-      // `from` naviga verso l'entità; `pick` la rende inline dentro il genitore.
-      // In entrambi i casi è già esposta, e un tool tutto suo la duplicherebbe.
+      // `from` navigates to the entity, `pick` renders it inline inside the
+      // parent. Either way it is already visible, so a tool of its own is a copy.
       const properties = spec.from ? [spec.from] : (spec.pick ?? []);
       for (const property of properties) {
         for (const target of resolveTargets(graph, entity, property)) {
@@ -69,11 +70,11 @@ export function mapToTools(graph: EntityGraph, options: MapOptions = {}): MapRes
     }
   }
 
-  // Le entità secondarie dello stesso tipo vanno raggruppate. Una pagina di film
-  // reale contiene nove Person: nove tool con la stessa description sono
-  // inservibili per un agente, che non ha modo di sceglierne uno. Un solo tool
-  // che le restituisce tutte sì. Metterne il nome nella description sarebbe
-  // l'altra strada, ma farebbe entrare testo di pagina nelle istruzioni del tool.
+  // Secondary entities of the same type get grouped. A film page carries nine
+  // Person entities, and nine tools sharing one description leave an agent with
+  // no way to choose between them. A single tool that returns all nine works.
+  // Naming each one in its description is the other option, but that lets page
+  // text into a tool's instructions.
   const groups = new Map<string, string[]>();
   for (const id of ordered) {
     if (id === primaryId || consumed.has(id)) continue;
@@ -93,7 +94,7 @@ export function mapToTools(graph: EntityGraph, options: MapOptions = {}): MapRes
     return true;
   };
 
-  // L'entità primaria conserva i suoi tool dedicati: è il soggetto della pagina.
+  // The primary entity keeps its own dedicated tools. It is what the page is about.
   const primary = primaryId ? graph.nodes.get(primaryId) : undefined;
   if (primary) {
     const profile = profiles.get(primary.id) ?? genericProfile(primary);
@@ -116,8 +117,8 @@ export function mapToTools(graph: EntityGraph, options: MapOptions = {}): MapRes
       continue;
     }
 
-    // Solo la ReadSpec principale: per le entità di contorno le sotto-letture
-    // (offerta, recensioni…) sono rumore.
+    // Only the main ReadSpec. On background entities the sub-reads (offer,
+    // reviews and the rest) are noise.
     const spec = profile.read[0];
     if (spec) emit(buildGroupTool(graph, entities, profile, spec, usedNames));
   }
@@ -134,16 +135,16 @@ export function mapToTools(graph: EntityGraph, options: MapOptions = {}): MapRes
 }
 
 /**
- * Meccanica del protocollo, non contenuto. Un `SearchAction` descrive COME
- * cercare e un `EntryPoint` DOVE: esporli come tool di lettura darebbe a un
- * agente `get_search_action`, che non risponde a nessuna domanda.
- * Le azioni diventano semmai tool eseguibili, e di quello si occupa `mapActions`.
+ * Protocol machinery rather than content. A `SearchAction` says how to search
+ * and an `EntryPoint` says where. As read tools they would give an agent a
+ * `get_search_action` that answers no question anyone would ask. Actions become
+ * executable tools if they become anything, and that is `mapActions`' job.
  */
 function isMachinery(entity: Entity): boolean {
   return entity.types.some((type) => type === 'EntryPoint' || type.endsWith('Action'));
 }
 
-/** Match diretto sul tipo, poi risalita della gerarchia (Vehicle -> Product). */
+/** Direct match on the type first, then up the hierarchy: Vehicle to Product. */
 function resolveProfile(entity: Entity, options: MapOptions): Profile | undefined {
   const profiles = options.profiles;
   if (!profiles?.length) return undefined;
@@ -170,7 +171,7 @@ function buildReadTool(
   spec: ReadSpec,
   usedNames: Set<string>
 ): ToolDescriptor | undefined {
-  // `from` naviga in una proprietà-riferimento: niente proprietà, niente tool.
+  // `from` follows a reference property. No property, no tool.
   const targets = spec.from ? resolveTargets(graph, entity, spec.from) : [entity];
   if (targets.length === 0) return undefined;
 
@@ -185,7 +186,7 @@ function buildReadTool(
     name,
     description: spec.description,
     inputSchema: { type: 'object', properties: {}, additionalProperties: false },
-    // Generati dal markup della pagina: nessuna scrittura, nessuna chiamata di rete.
+    // Built from markup already in the page. Nothing is written and nothing is fetched.
     annotations: { readOnlyHint: true, openWorldHint: false },
     execute: () => {
       const payload = selected.map((target) => materialize(graph, target, { pick: spec.pick }));
@@ -202,7 +203,7 @@ function buildReadTool(
   };
 }
 
-/** Un solo tool per N entità dello stesso tipo, invece di N tool indistinguibili. */
+/** One tool covering N entities of a type, instead of N tools nobody can tell apart. */
 function buildGroupTool(
   graph: EntityGraph,
   entities: readonly Entity[],

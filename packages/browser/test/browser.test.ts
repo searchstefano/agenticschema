@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { Window } from 'happy-dom';
 import { start, type Handle } from '../src/index.js';
 
-/** Finto `document.modelContext`: registra e rispetta l'AbortSignal, come Chrome. */
+/** A stand-in `document.modelContext`: it registers and honours the AbortSignal, like Chrome. */
 function fakeModelContext() {
   const live = new Map<
     string,
@@ -49,8 +49,8 @@ afterEach(() => {
 
 // ---------------------------------------------------------------------------
 
-describe('adapter browser', () => {
-  it('registra i tool della pagina su modelContext', async () => {
+describe('browser adapter', () => {
+  it('registers the page tools on modelContext', async () => {
     setPage(PRODUCT);
     const api = fakeModelContext();
     handle = await start({
@@ -64,7 +64,7 @@ describe('adapter browser', () => {
     expect(handle.tools()).toHaveLength(2);
   });
 
-  it('i tool registrati restituiscono i dati della pagina', async () => {
+  it('the registered tools return the page data', async () => {
     setPage(PRODUCT);
     const api = fakeModelContext();
     handle = await start({ document, modelContext: api, watch: false });
@@ -74,26 +74,26 @@ describe('adapter browser', () => {
     expect(result.content[0]!.text).toContain('129.90');
   });
 
-  it('non esplode su un browser senza WebMCP: restituisce un handle inerte', async () => {
+  it('survives a browser without WebMCP by returning an inert handle', async () => {
     setPage(PRODUCT);
-    // Nessun modelContext iniettato e nessun document.modelContext globale.
+    // No modelContext injected and no global document.modelContext either.
     handle = await start({ document, watch: false });
     expect(handle.tools()).toEqual([]);
     expect(() => handle!.stop()).not.toThrow();
   });
 
-  it('stop() deregistra tutto tramite AbortSignal', async () => {
+  it('stop() unregisters everything through the AbortSignal', async () => {
     setPage(PRODUCT);
     const api = fakeModelContext();
     handle = await start({ document, modelContext: api, watch: false });
     expect(api.live.size).toBe(2);
 
     handle.stop();
-    // WebMCP non ha unregisterTool: l'abort è l'unica via, e deve funzionare.
+    // WebMCP has no unregisterTool. The abort is the only route, and it has to work.
     expect(api.live.size).toBe(0);
   });
 
-  it('refresh è un no-op se il markup non è cambiato', async () => {
+  it('refresh does nothing when the markup has not changed', async () => {
     setPage(PRODUCT);
     const api = fakeModelContext();
     const spy = vi.spyOn(api, 'registerTool');
@@ -104,12 +104,12 @@ describe('adapter browser', () => {
     expect(spy.mock.calls.length).toBe(callsAfterStart);
   });
 
-  it('rimappa quando il markup cambia, anche se i nomi dei tool restano uguali', async () => {
+  it('remaps when the markup changes, even if the tool names stay the same', async () => {
     setPage(PRODUCT);
     const api = fakeModelContext();
     handle = await start({ document, modelContext: api, watch: false });
 
-    // Solo il prezzo cambia: nomi e description identici, ma le closure sono vecchie.
+    // Only the price moves. Names and descriptions match, but the closures are stale.
     setPage(PRODUCT.replace('129.90', '99.00'));
     await handle.refresh();
 
@@ -119,20 +119,20 @@ describe('adapter browser', () => {
     expect(result.content[0]!.text).not.toContain('129.90');
   });
 
-  it('osserva le modifiche al DOM nelle SPA', async () => {
+  it('picks up DOM changes in a single-page app', async () => {
     setPage(PRODUCT);
     const api = fakeModelContext();
     handle = await start({ document, modelContext: api, debounceMs: 5 });
     expect([...api.live.keys()]).toContain('get_product');
 
-    // La route cambia e il framework riscrive il blocco JSON-LD.
+    // The route changes and the framework rewrites the JSON-LD block.
     setPage(
       JSON.stringify({ '@context': 'https://schema.org', '@type': 'Recipe', name: 'Carbonara' })
     );
     await vi.waitFor(() => expect([...api.live.keys()]).toEqual(['get_recipe']), { timeout: 1000 });
   });
 
-  it('stop() smette di osservare', async () => {
+  it('stop() stops watching', async () => {
     setPage(PRODUCT);
     const api = fakeModelContext();
     handle = await start({ document, modelContext: api, debounceMs: 5 });

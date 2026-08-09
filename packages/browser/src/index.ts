@@ -1,11 +1,11 @@
 import { extract, toTools, type PipelineOptions, type ToolDescriptor } from '@agenticschema/core';
 
 /**
- * Sottoinsieme di WebMCP che serve qui.
+ * The slice of WebMCP this adapter needs.
  *
- * Volutamente NON dichiara `getTools()` né `executeTool()`: sono API lato agente
- * e non risolvono se nessun agente è connesso. Awaitarle bloccherebbe l'init su
- * ogni pagina, quindi l'adapter tiene un registro proprio.
+ * It deliberately leaves out `getTools()` and `executeTool()`. Those are
+ * agent-side calls and they do not resolve while no agent is attached, so
+ * awaiting one would stall page init. The adapter keeps its own registry instead.
  */
 interface ModelContext {
   registerTool(
@@ -20,22 +20,22 @@ interface ModelContext {
 }
 
 export interface StartOptions extends PipelineOptions {
-  /** Default: il `document` della pagina. */
+  /** Defaults to the page's own `document`. */
   document?: Document;
-  /** Segue i cambi di route e le modifiche al markup (SPA). Default: true. */
+  /** Follow route changes and markup edits in single-page apps. Defaults to true. */
   watch?: boolean;
-  /** Attesa prima di rimappare dopo una modifica al DOM. Default: 250 ms. */
+  /** How long to wait after a DOM change before remapping. Defaults to 250 ms. */
   debounceMs?: number;
-  /** Iniettabile nei test; altrimenti si usa `document.modelContext`. */
+  /** Injectable in tests. Otherwise `document.modelContext` is used. */
   modelContext?: ModelContext;
 }
 
 export interface Handle {
-  /** Tool attualmente registrati. */
+  /** The tools currently registered. */
   tools(): readonly ToolDescriptor[];
-  /** Rimappa la pagina adesso. No-op se il markup non è cambiato. */
+  /** Remap the page now. Does nothing if the markup has not changed. */
   refresh(): Promise<void>;
-  /** Deregistra tutto e smette di osservare. */
+  /** Unregister everything and stop watching. */
   stop(): void;
 }
 
@@ -45,10 +45,10 @@ type ProfileOptions = Pick<PipelineOptions, 'profiles' | 'ancestorsOf'>;
 let profilesPromise: Promise<ProfileOptions> | undefined;
 
 /**
- * I profili e la gerarchia Schema.org pesano più di tutto il resto messo insieme.
- * Restano un chunk a parte, caricato dopo che l'adapter è già in piedi: il costo
- * iniziale per una pagina che include lo script deve restare minimo.
- * Se il chunk non arriva si va avanti col profilo generico del core.
+ * The profiles and the Schema.org hierarchy weigh more than everything else put
+ * together, so they stay in their own chunk and load once the adapter is already
+ * running. A page that includes the script should pay as little as possible up
+ * front. If the chunk never arrives, the core's generic profile carries on alone.
  */
 function loadProfiles(): Promise<ProfileOptions> {
   profilesPromise ??= import('@agenticschema/profiles')
@@ -58,10 +58,10 @@ function loadProfiles(): Promise<ProfileOptions> {
 }
 
 /**
- * Trova la superficie WebMCP.
- * `document.modelContext` è quella canonica; `navigator.modelContext` esiste come
- * alias deprecato. Se manca, si carica il polyfill: Chrome non abilita WebMCP di
- * default, quindi il polyfill è la norma, non l'eccezione.
+ * Finds the WebMCP surface. `document.modelContext` is the canonical one and
+ * `navigator.modelContext` survives as a deprecated alias. If neither is there,
+ * load the polyfill: Chrome does not enable WebMCP by default, which makes the
+ * polyfill the normal case rather than the exception.
  */
 async function resolveApi(): Promise<ModelContext | undefined> {
   const find = (): ModelContext | undefined =>
@@ -81,15 +81,15 @@ async function resolveApi(): Promise<ModelContext | undefined> {
 
 export async function start(options: StartOptions = {}): Promise<Handle> {
   const doc = options.document ?? globalThis.document;
-  if (!doc) throw new Error('agenticschema/browser richiede un document');
+  if (!doc) throw new Error('agenticschema/browser needs a document');
 
   const resolved = options.modelContext ?? (await resolveApi());
   if (!resolved) {
-    // Nessun errore: un sito con lo script incluso non deve rompersi su un browser
-    // che non supporta WebMCP e dove il polyfill non è caricabile.
+    // Not an error. A site that includes the script must not break on a browser
+    // without WebMCP where the polyfill cannot be loaded either.
     return { tools: () => [], refresh: async () => {}, stop: () => {} };
   }
-  // Rilegato dopo la guardia: il restringimento non sopravvive dentro le closure.
+  // Rebound after the guard: the narrowing does not survive into the closures.
   const api: ModelContext = resolved;
 
   const baseUrl = options.baseUrl ?? globalThis.location?.href;
@@ -101,9 +101,9 @@ export async function start(options: StartOptions = {}): Promise<Handle> {
   let stopped = false;
 
   /**
-   * Impronta del markup strutturato. Si confronta questa e non la firma dei tool:
-   * se cambia solo un prezzo, nomi e description restano identici ma le closure
-   * dei tool sono ormai vecchie e vanno ricostruite.
+   * A fingerprint of the structured markup. This is what gets compared, not the
+   * tool signatures: when only a price changes, names and descriptions stay
+   * identical while the tool closures are already stale and need rebuilding.
    */
   const snapshot = (): string => JSON.stringify(extract(doc, options).nodes);
 
@@ -113,7 +113,7 @@ export async function start(options: StartOptions = {}): Promise<Handle> {
     if (current === lastSnapshot) return;
     lastSnapshot = current;
 
-    controller?.abort(); // unica via di deregistrazione: WebMCP non ha unregisterTool
+    controller?.abort(); // the only way to unregister: WebMCP has no unregisterTool
     controller = new AbortController();
 
     const result = toTools(doc, {
@@ -124,8 +124,8 @@ export async function start(options: StartOptions = {}): Promise<Handle> {
     registered = result.tools;
 
     for (const tool of result.tools) {
-      // Non awaitato: la promise di registerTool non è sulla strada critica e
-      // un agente non ancora connesso non deve bloccare l'init della pagina.
+      // Not awaited. The registerTool promise is not on the critical path, and an
+      // agent that has not connected yet must not hold up the page.
       void api.registerTool(
         {
           name: tool.name,
@@ -156,14 +156,14 @@ export async function start(options: StartOptions = {}): Promise<Handle> {
 }
 
 /**
- * Nelle SPA il markup JSON-LD cambia senza ricaricare la pagina. Servono entrambi
- * i segnali: il DOM (il framework riscrive il blocco) e la History API (la route
- * cambia anche quando il markup arriva dopo).
+ * In a single-page app the JSON-LD changes without a reload. Both signals are
+ * needed: the DOM, because the framework rewrites the block, and the History
+ * API, because the route can change before the new markup arrives.
  */
 function watchPage(doc: Document, onChange: () => void, debounceMs: number): () => void {
-  // Le API vanno prese dal realm del document, non da globalThis: un Document può
-  // venire da un'altra finestra (iframe, o happy-dom lato Node), dove i globali
-  // della pagina ospite non esistono affatto.
+  // These come from the document's own realm rather than globalThis. A Document
+  // can belong to another window (an iframe, or happy-dom on Node) where the
+  // host page's globals do not exist at all.
   const view = doc.defaultView;
   if (!view?.MutationObserver) return () => {};
 

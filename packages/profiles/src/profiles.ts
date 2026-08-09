@@ -1,15 +1,12 @@
 import type { Profile } from '@agenticschema/core';
 
 /**
- * Profili scritti a mano per i tipi più frequenti nel web reale.
- * I tipi non elencati sono coperti risalendo la gerarchia (`Vehicle` -> `Product`)
- * e, in ultima istanza, dal profilo generico del core.
+ * Hand-written profiles for the types that actually turn up on the web. Anything
+ * not listed here is covered by walking up the hierarchy (`Vehicle` to
+ * `Product`) and, failing that, by the core's generic profile.
  *
- * Le `description` sono in inglese: le legge il modello a runtime, su pagine di
- * qualsiasi lingua.
- *
- * `pick` è deliberatamente selettivo. Riversare ogni proprietà nel contesto
- * dell'agente costa token e sotterra i campi che contano.
+ * `pick` is deliberately selective. Tipping every property into the agent's
+ * context costs tokens and buries the fields that matter.
  */
 export const PROFILES: readonly Profile[] = [
   {

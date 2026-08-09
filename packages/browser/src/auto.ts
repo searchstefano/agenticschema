@@ -3,7 +3,7 @@ import { start, type Handle, type StartOptions } from './index.js';
 export * from './index.js';
 
 /**
- * Entry per il tag script. Si configura con i data-attribute:
+ * The script-tag entry point. Configured through data attributes:
  *
  *   <script src="https://cdn.jsdelivr.net/npm/@agenticschema/browser" defer
  *           data-actions="off" data-max-tools="12" data-watch="off"></script>
@@ -25,10 +25,10 @@ function optionsFromScriptTag(): StartOptions {
   };
 }
 
-/** Handle esposto per poter fermare o ispezionare l'adapter dalla console. */
+/** Exposed so the adapter can be stopped or inspected from the console. */
 export const ready: Promise<Handle> = start(optionsFromScriptTag());
 
-// Un errore qui non deve rompere la pagina ospite.
+// Whatever goes wrong here, it must not take the host page down with it.
 void ready.catch((err: unknown) => {
-  console.warn('[agenticschema] avvio fallito:', err);
+  console.warn('[agenticschema] failed to start:', err);
 });

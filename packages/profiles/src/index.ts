@@ -8,12 +8,13 @@ export { DIRECT_PARENTS } from './hierarchy.generated.js';
 const cache = new Map<string, readonly string[]>();
 
 /**
- * Antenati di un tipo Schema.org, dal più vicino al più lontano.
- * L'ordine conta: il mapper prende il primo profilo che trova risalendo, quindi
- * `FastFoodRestaurant` deve incontrare `FoodEstablishment` prima di `Thing`.
+ * Ancestors of a Schema.org type, nearest first.
  *
- * La visita è in ampiezza perché la gerarchia Schema.org ammette ereditarietà
- * multipla (`Restaurant` è sia `FoodEstablishment` sia `LocalBusiness`).
+ * The order matters. The mapper takes the first profile it finds on the way up,
+ * so `FastFoodRestaurant` has to meet `FoodEstablishment` before it meets `Thing`.
+ *
+ * Breadth-first, because the Schema.org hierarchy allows multiple inheritance:
+ * `Restaurant` is both a `FoodEstablishment` and a `LocalBusiness`.
  */
 export function ancestorsOf(type: string): readonly string[] {
   const cached = cache.get(type);
@@ -39,7 +40,7 @@ export function ancestorsOf(type: string): readonly string[] {
 }
 
 /**
- * Da passare direttamente a `mapToTools`:
+ * Hand this straight to `mapToTools`:
  *
  *   mapToTools(graph, { ...schemaOrgProfiles })
  */

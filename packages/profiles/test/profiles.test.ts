@@ -12,39 +12,39 @@ const run = async (tool: ToolDescriptor): Promise<any> =>
   JSON.parse((await tool.execute({})).content[0]!.text);
 
 describe('ancestorsOf', () => {
-  it('risale la gerarchia fino alla radice', () => {
+  it('walks the hierarchy all the way to the root', () => {
     expect(ancestorsOf('NewsArticle')).toContain('Article');
     expect(ancestorsOf('NewsArticle')).toContain('CreativeWork');
     expect(ancestorsOf('NewsArticle')).toContain('Thing');
   });
 
-  it('mette gli antenati vicini prima di quelli lontani', () => {
+  it('puts near ancestors before distant ones', () => {
     const chain = ancestorsOf('FastFoodRestaurant');
     expect(chain.indexOf('FoodEstablishment')).toBeLessThan(chain.indexOf('Thing'));
   });
 
-  it('gestisce l-ereditarietà multipla', () => {
-    // Restaurant eredita da FoodEstablishment, che a sua volta è LocalBusiness
+  it('handles multiple inheritance', () => {
+    // Restaurant inherits from FoodEstablishment, which is itself a LocalBusiness
     expect(ancestorsOf('Restaurant')).toContain('LocalBusiness');
   });
 
-  it('restituisce vuoto per un tipo sconosciuto invece di lanciare', () => {
+  it('returns empty for an unknown type instead of throwing', () => {
     expect(ancestorsOf('NonEsisteQuestoTipo')).toEqual([]);
   });
 
-  it('non entra in loop su gerarchie con cicli', () => {
-    // Se il vocabolario contenesse un ciclo, la visita deve comunque terminare.
+  it('does not loop on a hierarchy with cycles', () => {
+    // Should the vocabulary ever contain a cycle, the walk still has to finish.
     expect(() => ancestorsOf('Thing')).not.toThrow();
   });
 });
 
 describe('registry', () => {
-  it('non ha slug duplicati', () => {
+  it('has no duplicate slugs', () => {
     const slugs = PROFILES.map((p) => p.slug);
     expect(new Set(slugs).size).toBe(slugs.length);
   });
 
-  it('non assegna lo stesso tipo a due profili', () => {
+  it('never assigns one type to two profiles', () => {
     const seen = new Map<string, string>();
     for (const profile of PROFILES) {
       for (const type of profile.types) {
@@ -54,7 +54,7 @@ describe('registry', () => {
     }
   });
 
-  it('ogni ReadSpec ha una descrizione non vuota', () => {
+  it('every ReadSpec has a non-empty description', () => {
     for (const profile of PROFILES) {
       for (const spec of profile.read) {
         expect(spec.description.length, `${profile.slug}/${spec.name ?? '-'}`).toBeGreaterThan(10);
@@ -63,8 +63,8 @@ describe('registry', () => {
   });
 });
 
-describe('profili applicati a pagine reali', () => {
-  it('un e-commerce produce prodotto, offerta e recensioni', async () => {
+describe('profiles applied to realistic pages', () => {
+  it('a shop page yields product, offer and reviews', async () => {
     const tools = toolsFor(`{
       "@context":"https://schema.org","@type":"Product",
       "name":"Zaino Trekking 45L","sku":"ZT-45-BLU","description":"Con telaio in alluminio.",
@@ -83,22 +83,22 @@ describe('profili applicati a pagine reali', () => {
     expect(await run(tools[3]!)).toHaveLength(2);
   });
 
-  it('una FAQ espone le domande come lista', async () => {
+  it('an FAQ exposes its questions as one list', async () => {
     const tools = toolsFor(`{
       "@context":"https://schema.org","@type":"FAQPage",
       "mainEntity":[
-        {"@type":"Question","name":"Si spedisce all-estero?","acceptedAnswer":{"@type":"Answer","text":"Sì, in tutta la UE."}},
-        {"@type":"Question","name":"Quanto dura la garanzia?","acceptedAnswer":{"@type":"Answer","text":"Due anni."}}
+        {"@type":"Question","name":"Do you ship abroad?","acceptedAnswer":{"@type":"Answer","text":"Yes, across the EU."}},
+        {"@type":"Question","name":"How long is the warranty?","acceptedAnswer":{"@type":"Answer","text":"Two years."}}
       ]}`);
 
     const faq = tools.find((t) => t.name === 'get_faq_questions')!;
     expect(faq).toBeDefined();
     const questions = await run(faq);
     expect(questions).toHaveLength(2);
-    expect(JSON.stringify(questions)).toContain('Due anni');
+    expect(JSON.stringify(questions)).toContain('Two years');
   });
 
-  it('un ristorante usa il profilo business per ereditarietà, non il generico', async () => {
+  it('a restaurant inherits the business profile rather than the generic one', async () => {
     const tools = toolsFor(`{
       "@context":"https://schema.org","@type":"Restaurant",
       "name":"Trattoria da Nino","telephone":"+39 000 0000000","servesCuisine":"Italiana",
@@ -117,19 +117,19 @@ describe('profili applicati a pagine reali', () => {
     expect(await run(tools[2]!)).toHaveLength(2);
   });
 
-  it('un tipo fuori registry ricade sul generico senza rompersi', async () => {
+  it('a type outside the registry falls back to the generic profile', async () => {
     const tools = toolsFor('{"@context":"https://schema.org","@type":"Occupation","name":"Falegname"}');
     expect(tools.map((t) => t.name)).toEqual(['get_occupation']);
     expect(await run(tools[0]!)).toMatchObject({ name: 'Falegname' });
   });
 
-  it('pick esclude davvero i campi non richiesti', async () => {
+  it('pick really does leave unwanted fields out', async () => {
     const tools = toolsFor(`{
       "@context":"https://schema.org","@type":"Product","name":"Zaino",
       "sku":"ZT-45-BLU","weight":"1.2kg","award":"premio inventato"}`);
     const product = await run(tools[0]!);
     expect(product).toHaveProperty('sku');
-    // `weight` e `award` non sono nel pick del profilo product
+    // `weight` and `award` are not in the product profile pick
     expect(product).not.toHaveProperty('weight');
     expect(product).not.toHaveProperty('award');
   });

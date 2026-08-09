@@ -14,7 +14,7 @@ import {
 const ldScript = (json: string) => `<script type="application/ld+json">${json}</script>`;
 const graphOf = (json: string): EntityGraph => normalize(extract(ldScript(json)).nodes);
 
-/** Esegue un tool e restituisce il payload JSON già parsato. */
+/** Runs a tool and hands back the parsed JSON payload. */
 const run = async (tool: ToolDescriptor): Promise<unknown> =>
   JSON.parse((await tool.execute({})).content[0]!.text);
 
@@ -31,7 +31,7 @@ const productProfile: Profile = {
 // ---------------------------------------------------------------------------
 
 describe('selectPrimary', () => {
-  it('segue mainEntity di una pagina', () => {
+  it('follows a page mainEntity', () => {
     const graph = graphOf(
       '{"@context":"https://schema.org","@graph":[' +
         '{"@type":"WebPage","@id":"#page","mainEntity":{"@id":"#p"}},' +
@@ -40,7 +40,7 @@ describe('selectPrimary', () => {
     expect(selectPrimary(graph)).toBe('#p');
   });
 
-  it('tratta il nodo con mainEntityOfPage come primario (la freccia punta al contrario)', () => {
+  it('treats a node with mainEntityOfPage as primary, since that arrow points the other way', () => {
     const graph = graphOf(
       '{"@context":"https://schema.org","@graph":[' +
         '{"@type":"WebPage","@id":"#page"},' +
@@ -49,7 +49,7 @@ describe('selectPrimary', () => {
     expect(selectPrimary(graph)).toBe('#a');
   });
 
-  it('scarta il contorno e sceglie il soggetto vero', () => {
+  it('skips the furniture and picks the real subject', () => {
     const graph = graphOf(
       '{"@context":"https://schema.org","@graph":[' +
         '{"@type":"BreadcrumbList","@id":"#bc"},' +
@@ -60,7 +60,7 @@ describe('selectPrimary', () => {
     expect(selectPrimary(graph)).toBe('#p');
   });
 
-  it('usa about quando è l-unico segnale', () => {
+  it('falls back to about when that is the only signal', () => {
     const graph = graphOf(
       '{"@context":"https://schema.org","@graph":[' +
         '{"@type":"WebPage","@id":"#page","about":{"@id":"#e"}},' +
@@ -71,14 +71,14 @@ describe('selectPrimary', () => {
 });
 
 describe('mapToTools', () => {
-  it('genera un tool anche senza profili, via fallback generico', async () => {
+  it('still produces a tool with no profiles, through the generic fallback', async () => {
     const graph = graphOf('{"@type":"Recipe","name":"Carbonara","recipeYield":"4"}');
     const { tools } = mapToTools(graph);
     expect(tools.map((t) => t.name)).toEqual(['get_recipe']);
     expect(await run(tools[0]!)).toMatchObject({ type: 'Recipe', name: 'Carbonara' });
   });
 
-  it('applica il profilo del tipo e naviga in from', async () => {
+  it('applies the profile for the type and follows from', async () => {
     const graph = graphOf(
       '{"@type":"Product","name":"Zaino","sku":"ZT-45-BLU","description":"da escursione",' +
         '"offers":{"@type":"Offer","price":"129.90","priceCurrency":"EUR"}}'
@@ -86,19 +86,19 @@ describe('mapToTools', () => {
     const { tools } = mapToTools(graph, { profiles: [productProfile] });
 
     expect(tools.map((t) => t.name)).toEqual(['get_product', 'get_product_offer']);
-    // `pick` limita davvero i campi: description non deve comparire
+    // `pick` really does limit the fields, so description must not show up
     expect(await run(tools[0]!)).toEqual({ type: 'Product', name: 'Zaino', sku: 'ZT-45-BLU' });
     expect(await run(tools[1]!)).toMatchObject({ price: '129.90', priceCurrency: 'EUR' });
   });
 
-  it('salta le ReadSpec la cui proprietà from non esiste', () => {
+  it('skips ReadSpecs whose from property is missing', () => {
     const graph = graphOf('{"@type":"Product","name":"Zaino"}');
     const { tools } = mapToTools(graph, { profiles: [productProfile] });
-    // niente offers, niente review -> resta solo il tool principale
+    // no offers and no review, so only the main tool survives
     expect(tools.map((t) => t.name)).toEqual(['get_product']);
   });
 
-  it('restituisce tutti gli elementi quando list è attivo', async () => {
+  it('returns every item when list is set', async () => {
     const graph = graphOf(
       '{"@type":"Product","name":"Zaino","review":[' +
         '{"@type":"Review","name":"ottimo"},{"@type":"Review","name":"buono"}]}'
@@ -108,7 +108,7 @@ describe('mapToTools', () => {
     expect(await run(reviews)).toHaveLength(2);
   });
 
-  it('eredita il profilo di un antenato tramite ancestorsOf', () => {
+  it('inherits an ancestor profile through ancestorsOf', () => {
     const graph = graphOf('{"@type":"Vehicle","name":"Panda","sku":"FP-2020"}');
     const ancestorsOf = (type: string) => (type === 'Vehicle' ? ['Product', 'Thing'] : []);
 
@@ -119,27 +119,27 @@ describe('mapToTools', () => {
     expect(con.tools.map((t) => t.name)).toEqual(['get_product']); // ereditato
   });
 
-  it('marca i tool di lettura come readOnly', () => {
+  it('marks read tools as readOnly', () => {
     const graph = graphOf('{"@type":"Product","name":"Zaino"}');
     const { tools } = mapToTools(graph, { profiles: [productProfile] });
     expect(tools[0]!.annotations).toEqual({ readOnlyHint: true, openWorldHint: false });
     expect(tools[0]!.source.kind).toBe('read');
   });
 
-  it('collassa le entità secondarie dello stesso tipo in un solo tool', async () => {
+  it('collapses secondary entities of one type into a single tool', async () => {
     const many = Array.from({ length: 30 }, (_, i) => `{"@type":"Product","name":"P${i}"}`).join(',');
     const graph = graphOf(`{"@context":"https://schema.org","@graph":[${many}]}`);
 
     const { tools } = mapToTools(graph, { profiles: [productProfile] });
-    // Il soggetto della pagina resta separato; gli altri 29 in un tool solo.
+    // The subject of the page stays on its own. The other 29 share one tool.
     expect(tools.map((t) => t.name)).toEqual(['get_product', 'list_product']);
 
     const list = (await run(tools[1]!)) as unknown[];
     expect(list).toHaveLength(29);
   });
 
-  it('rispetta il tetto sul numero di tool e lo dichiara', () => {
-    // Tipi distinti: non si raggruppano, quindi il cap è davvero raggiungibile.
+  it('respects the tool cap and says when it hit it', () => {
+    // Distinct types do not group, so the cap is actually reachable here.
     const types = ['Recipe', 'Event', 'Book', 'Movie', 'Course', 'Dataset', 'HowTo', 'JobPosting'];
     const many = types.map((t, i) => `{"@type":"${t}","name":"E${i}"}`).join(',');
     const graph = graphOf(`{"@context":"https://schema.org","@graph":[${many}]}`);
@@ -149,7 +149,7 @@ describe('mapToTools', () => {
     expect(diagnostics.map((d) => d.code)).toContain('tool-limit');
   });
 
-  it('mette per primi i tool dell-entità primaria, così il cap non la taglia fuori', () => {
+  it('puts the primary entity first so the cap cannot cut it out', () => {
     const graph = graphOf(
       '{"@context":"https://schema.org","@graph":[' +
         '{"@type":"BreadcrumbList","@id":"#bc"},' +
@@ -161,7 +161,7 @@ describe('mapToTools', () => {
     expect(tools[0]!.source.entityType).toBe('Product');
   });
 
-  it('disambigua i nomi in collisione', () => {
+  it('disambiguates colliding names', () => {
     const graph = graphOf(
       '{"@context":"https://schema.org","@graph":[' +
         '{"@type":"Product","name":"A"},{"@type":"Product","name":"B"}]}'
@@ -172,20 +172,20 @@ describe('mapToTools', () => {
 });
 
 describe('materialize', () => {
-  it('non entra in loop sui riferimenti reciproci', () => {
+  it('does not loop on mutual references', () => {
     const graph = graphOf(
       '{"@context":"https://schema.org","@graph":[' +
         '{"@type":"Product","@id":"#a","name":"A","isRelatedTo":{"@id":"#b"}},' +
         '{"@type":"Product","@id":"#b","name":"B","isRelatedTo":{"@id":"#a"}}]}'
     );
     const result = materialize(graph, graph.nodes.get('#a')!);
-    // il ciclo si chiude con un identificatore, non con una ricorsione infinita
+    // the cycle closes on an identifier rather than recursing forever
     expect(JSON.stringify(result)).toContain('"id":"#a"');
   });
 });
 
 describe('toSlug', () => {
-  it('converte i tipi schema.org in snake_case', () => {
+  it('converts schema.org types to snake_case', () => {
     expect(toSlug('Product')).toBe('product');
     expect(toSlug('LocalBusiness')).toBe('local_business');
     expect(toSlug('FAQPage')).toBe('faq_page');

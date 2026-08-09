@@ -2,9 +2,9 @@ import type { Diagnostic, ExtractResult, JsonObject, JsonValue, RawNode } from '
 
 export interface ExtractOptions {
   /**
-   * Se `source` è una stringa HTML si estrae solo JSON-LD: microdata e RDFa richiedono
-   * un parser HTML vero. Passare un `Document` (browser, oppure linkedom/happy-dom lato
-   * Node) per avere tutti e tre i formati.
+   * If `source` is an HTML string, only JSON-LD comes out: microdata and RDFa
+   * need a real HTML parser. Pass a `Document`, either the browser's own or
+   * one from linkedom or happy-dom on Node, to get all three.
    */
   formats?: Array<'jsonld' | 'microdata' | 'rdfa'>;
 }
@@ -13,8 +13,8 @@ const isObject = (v: JsonValue | undefined): v is JsonObject =>
   typeof v === 'object' && v !== null && !Array.isArray(v);
 
 /**
- * Estrae i blob di dati strutturati da una pagina, senza interpretarli.
- * La normalizzazione (`@graph`, `@id`, prefissi) è responsabilità di `normalize`.
+ * Pulls the structured-data blobs out of a page without interpreting them.
+ * Making sense of `@graph`, `@id` and prefixes is `normalize`'s job.
  */
 export function extract(source: Document | string, options: ExtractOptions = {}): ExtractResult {
   const formats = options.formats ?? ['jsonld', 'microdata', 'rdfa'];
@@ -30,8 +30,8 @@ export function extract(source: Document | string, options: ExtractOptions = {})
       try {
         parsed = JSON.parse(raw) as JsonValue;
       } catch (err) {
-        // Il JSON-LD rotto è comunissimo nel web reale: si annota e si prosegue,
-        // perché un blocco malformato non deve azzerare gli altri.
+        // Broken JSON-LD is everywhere on the real web. Note it and carry on:
+        // one malformed block must not wipe out the others.
         diagnostics.push({
           level: 'warn',
           code: 'json-parse-error',
@@ -69,9 +69,9 @@ const scanJsonLdFromDom = (doc: Document): string[] =>
   [...doc.querySelectorAll('script[type="application/ld+json"]')].map((s) => s.textContent ?? '');
 
 /**
- * Percorso stringa (Node senza DOM). Affidabile per JSON-LD: la specifica HTML
- * impone di escapare `</script>` dentro il contenuto dello script, quindi la
- * chiusura non può comparire dentro il JSON valido.
+ * The string path, for Node without a DOM. Reliable enough for JSON-LD: the HTML
+ * spec requires `</script>` to be escaped inside script content, so the closing
+ * tag cannot turn up inside valid JSON.
  */
 function scanJsonLdFromHtml(html: string): string[] {
   const re = /<script\b[^>]*\btype\s*=\s*["']application\/ld\+json["'][^>]*>([\s\S]*?)<\/script\s*>/gi;
@@ -79,11 +79,11 @@ function scanJsonLdFromHtml(html: string): string[] {
 }
 
 // ---------------------------------------------------------------------------
-// Microdata (sottoinsieme WHATWG sufficiente per schema.org)
+// Microdata: the slice of WHATWG that schema.org actually needs
 // ---------------------------------------------------------------------------
 
 function extractMicrodata(doc: Document): RawNode[] {
-  // Solo gli scope di primo livello: quelli annidati sono raccolti ricorsivamente.
+  // Top-level scopes only. Nested ones get picked up on the way down.
   const tops = [...doc.querySelectorAll('[itemscope]')].filter(
     (el) => !el.parentElement?.closest('[itemscope]')
   );
@@ -117,7 +117,7 @@ function readItem(scope: Element): JsonObject {
   return item;
 }
 
-/** Discendenti con itemprop che appartengono a QUESTO scope (non a uno annidato). */
+/** Descendants carrying itemprop that belong to THIS scope, not to a nested one. */
 const childProperties = (scope: Element): Element[] =>
   [...scope.querySelectorAll('[itemprop]')].filter(
     (el) => el.parentElement?.closest('[itemscope]') === scope
@@ -150,20 +150,19 @@ function propertyValue(el: Element): string {
 }
 
 // ---------------------------------------------------------------------------
-// RDFa Lite (typeof / property / resource / vocab)
+// RDFa Lite: typeof / property / resource / vocab
 // ---------------------------------------------------------------------------
 
 const SCHEMA_ORG_IRI = /^https?:\/\/(www\.)?schema\.org\//i;
 
 /**
- * RDFa è un meccanismo generico: qualunque vocabolario può usarlo, e dare per
- * scontato che sia sempre schema.org non regge fuori dai test. MediaWiki annota
- * il proprio markup con `typeof="mw:Transclusion"`, `mw:File/Thumb`, `mw:Entity`
- * e simili — una pagina di Wikipedia ne contiene oltre centosessanta, e senza
- * questo filtro finivano tutti nel grafo come entità.
+ * RDFa is a generic mechanism: any vocabulary can use it, and assuming it is
+ * always schema.org does not survive contact with real pages. MediaWiki marks up
+ * its own output with `typeof="mw:Transclusion"`, `mw:File/Thumb`, `mw:Entity`
+ * and friends. A single Wikipedia article carries over a hundred and sixty of
+ * them, and none of them describe anything an agent would want to read.
  *
- * Restituisce il nome locale se il termine appartiene a schema.org, `undefined`
- * altrimenti.
+ * Returns the local name when the term belongs to schema.org, `undefined` otherwise.
  */
 function schemaTerm(value: string): string | undefined {
   const term = value.trim();
@@ -171,8 +170,8 @@ function schemaTerm(value: string): string | undefined {
   if (SCHEMA_ORG_IRI.test(term)) return term.slice(term.lastIndexOf('/') + 1);
 
   const colon = term.indexOf(':');
-  // Termine nudo: si assume il vocabolario di default, che per i dati
-  // strutturati è schema.org. Con un prefisso, invece, dev'essere il suo.
+  // A bare term falls back to the default vocabulary, which for structured data
+  // is schema.org. With a prefix, though, that prefix has to be schema.org's.
   if (colon === -1) return term;
   return term.slice(0, colon).toLowerCase() === 'schema' ? term.slice(colon + 1) : undefined;
 }
@@ -187,8 +186,8 @@ function extractRdfa(doc: Document): RawNode[] {
   const entities = [...doc.querySelectorAll('[typeof]')].filter(
     (el) => schemaTypesOf(el).length > 0
   );
-  // Radici fra le sole entità schema.org: un wrapper di un altro vocabolario
-  // frapposto non deve far sembrare radice un'entità annidata.
+  // Roots among the schema.org entities alone: a wrapper from some other
+  // vocabulary sitting in between must not make a nested entity look like a root.
   const tops = entities.filter(
     (el) => !entities.some((other) => other !== el && other.contains(el))
   );
@@ -209,7 +208,7 @@ function readRdfaItem(scope: Element): JsonObject {
   );
 
   for (const prop of props) {
-    // Stesso filtro sulle proprietà: `property="mw:..."` non è un dato nostro.
+    // Same filter on properties: `property="mw:..."` is not our data.
     const name = schemaTerm(prop.getAttribute('property') ?? '');
     if (!name) continue;
     const value: JsonValue = prop.hasAttribute('typeof')

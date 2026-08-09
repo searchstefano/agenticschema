@@ -23,7 +23,7 @@ const PRODUCT_PAGE = `<!doctype html><html><head>
   </div>
 </body></html>`;
 
-/** Collega un client MCP reale al server generato. */
+/** Wires a real MCP client to the generated server. */
 async function connect(html: string, url = 'https://negozio.test/prodotto') {
   const { server, tools, diagnostics } = await createServer([{ url, html }]);
   const client = new Client({ name: 'test', version: '0.0.0' });
@@ -36,8 +36,8 @@ const textOf = (result: { content: Array<{ text?: string }> }) => result.content
 
 // ---------------------------------------------------------------------------
 
-describe('adapter server', () => {
-  it('un client MCP reale vede i tool generati dalla pagina', async () => {
+describe('server adapter', () => {
+  it('a real MCP client sees the tools generated from the page', async () => {
     const { client } = await connect(PRODUCT_PAGE);
     const { tools } = await client.listTools();
     const names = tools.map((t) => t.name);
@@ -47,7 +47,7 @@ describe('adapter server', () => {
     await client.close();
   });
 
-  it('il client invoca un tool e riceve i dati del JSON-LD', async () => {
+  it('the client calls a tool and gets the JSON-LD data back', async () => {
     const { client } = await connect(PRODUCT_PAGE);
     const result = await client.callTool({ name: 'get_product_offer', arguments: {} });
 
@@ -56,7 +56,7 @@ describe('adapter server', () => {
     await client.close();
   });
 
-  it('la SearchAction diventa un tool con il parametro richiesto', async () => {
+  it('the SearchAction becomes a tool carrying its required parameter', async () => {
     const { client } = await connect(PRODUCT_PAGE);
     const { tools } = await client.listTools();
     const search = tools.find((t) => t.name.startsWith('search_'))!;
@@ -66,7 +66,7 @@ describe('adapter server', () => {
     await client.close();
   });
 
-  it('la validazione dello schema rifiuta un input privo del parametro richiesto', async () => {
+  it('schema validation rejects input missing the required parameter', async () => {
     const { client } = await connect(PRODUCT_PAGE);
     const { tools } = await client.listTools();
     const search = tools.find((t) => t.name.startsWith('search_'))!;
@@ -82,7 +82,7 @@ describe('adapter server', () => {
     await client.close();
   });
 
-  it('espone le entità anche come Resources MCP, che nel browser non esistono', async () => {
+  it('also exposes entities as MCP resources, which the browser cannot do', async () => {
     const { client } = await connect(PRODUCT_PAGE);
     const { resources } = await client.listResources();
 
@@ -91,21 +91,21 @@ describe('adapter server', () => {
     expect(product).toBeDefined();
 
     const read = await client.readResource({ uri: product.uri });
-    // `contents` è un'unione testo|blob: qui è testo, ma va ristretto.
+    // `contents` is a text|blob union. It is text here, but it still needs narrowing.
     const content = read.contents[0]!;
     expect('text' in content && content.text).toContain('Zaino Trekking 45L');
     await client.close();
   });
 
-  it('legge anche i microdata, perché lato server c-è un DOM vero', async () => {
+  it('reads microdata too, because there is a real DOM server-side', async () => {
     const { client } = await connect(PRODUCT_PAGE);
     const { resources } = await client.listResources();
-    // <div itemscope itemtype="Organization"> nel body
+    // the <div itemscope itemtype="Organization"> in the body
     expect(resources.some((r) => r.title === 'Organization')).toBe(true);
     await client.close();
   });
 
-  it('separa i nomi quando le pagine sono più di una', async () => {
+  it('separates names when there is more than one page', async () => {
     const { server, tools } = await createServer([
       { url: 'https://negozio-a.test/p', html: PRODUCT_PAGE },
       { url: 'https://negozio-b.test/p', html: PRODUCT_PAGE },
@@ -118,7 +118,7 @@ describe('adapter server', () => {
     expect(new Set(names).size).toBe(names.length);
   });
 
-  it('una pagina senza dati strutturati non fa esplodere il server', async () => {
+  it('a page with no structured data does not take the server down', async () => {
     const { client, diagnostics } = await connect('<!doctype html><html><body><p>niente</p></body></html>');
     const { tools } = await client.listTools();
 
@@ -129,7 +129,7 @@ describe('adapter server', () => {
 });
 
 describe('parseDocument', () => {
-  it('produce un Document utilizzabile dalla pipeline', () => {
+  it('produces a Document the pipeline can use', () => {
     const doc = parseDocument('<html><body><div itemscope itemtype="https://schema.org/Person"></div></body></html>');
     expect(doc.querySelectorAll('[itemscope]')).toHaveLength(1);
   });
