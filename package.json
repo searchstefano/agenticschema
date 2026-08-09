@@ -1,0 +1,42 @@
+{
+  "name": "agenticschema",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Converte lo Schema.org di una pagina in tool MCP, automaticamente.",
+  "license": "MIT",
+  "workspaces": [
+    "packages/*"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "build": "npm run build -w @agenticschema/core -w @agenticschema/profiles -w @agenticschema/browser -w @agenticschema/server",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "typecheck": "tsc --noEmit --pretty",
+    "size": "node scripts/check-size.mjs",
+    "corpus:fetch": "node scripts/fetch-corpus.mjs",
+    "changeset": "changeset",
+    "version-packages": "changeset version && npm install --package-lock-only",
+    "release": "npm run build && changeset publish"
+  },
+  "devDependencies": {
+    "@changesets/cli": "^2.31.1",
+    "@modelcontextprotocol/client": "^2.0.0",
+    "happy-dom": "^20.11.2",
+    "tsup": "^8.5.1",
+    "typescript": "^7.0.2",
+    "vitest": "^4.1.10"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/searchstefano/agenticschema.git"
+  },
+  "bugs": {
+    "url": "https://github.com/searchstefano/agenticschema/issues"
+  },
+  "homepage": "https://github.com/searchstefano/agenticschema#readme",
+  "author": "searchstefano"
+}

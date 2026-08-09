@@ -1,0 +1,12 @@
+node_modules/
+dist/
+coverage/
+*.tsbuildinfo
+.DS_Store
+
+# Lo spike della Fase 0 resta come documentazione, le sue dipendenze no.
+spike/node_modules/
+
+# Corpus scaricato da pagine reali: utile in locale, non ridistribuibile.
+packages/core/test/fixtures/local/*
+!packages/core/test/fixtures/local/.gitkeep
