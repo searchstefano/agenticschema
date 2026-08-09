@@ -1,0 +1,17 @@
+{
+  "@context": "https://schema.org",
+  "@type": "WebPage",
+  "description": "Testata di esempio: notizie, video e analisi. Testo volutamente lungo per esercitare i limiti di lunghezza. Testo volutamente lungo per esercitare i limiti di lunghezza. Testo volutamente lungo per esercitare i limiti di lunghezza. Testo volutamente lungo per esercitare i limiti di lunghezza. ",
+  "publisher": {
+    "@type": "NewsMediaOrganization",
+    "name": "Notiziario Esempio",
+    "logo": {
+      "@type": "ImageObject",
+      "url": "https://notiziario.esempio/logo.svg"
+    },
+    "sameAs": [
+      "https://social.esempio/notiziario",
+      "https://video.esempio/notiziario"
+    ]
+  }
+}

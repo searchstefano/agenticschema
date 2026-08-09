@@ -1,0 +1,28 @@
+{
+  "@context": "https://schema.org",
+  "@type": "Article",
+  "name": "Zaini da trekking",
+  "url": "https://enciclopedia.esempio/wiki/Zaino",
+  "mainEntity": "https://dati.esempio/entity/Q5843",
+  "headline": "contenitore portato sulla schiena",
+  "datePublished": "2003-02-16T12:32:27Z",
+  "dateModified": "2026-08-07T05:52:05Z",
+  "author": {
+    "@type": "Organization",
+    "name": "Collaboratori dell-enciclopedia"
+  },
+  "publisher": {
+    "@type": "Organization",
+    "name": "Fondazione Esempio",
+    "logo": {
+      "@type": "ImageObject",
+      "url": "https://enciclopedia.esempio/logo.png",
+      "width": 200,
+      "height": 60
+    }
+  },
+  "image": {
+    "@type": "ImageObject",
+    "url": "https://enciclopedia.esempio/img/zaino.jpg"
+  }
+}

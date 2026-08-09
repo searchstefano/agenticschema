@@ -1,0 +1,74 @@
+{
+  "@context": "http://schema.org",
+  "@type": "Movie",
+  "name": "Il Viaggio nelle Dune",
+  "contentRating": "T",
+  "dateCreated": "2024-03-01",
+  "genre": [
+    "Fantascienza",
+    "Avventura"
+  ],
+  "duration": "PT2H46M",
+  "description": "Film di esempio con un cast numeroso, per esercitare il raggruppamento.",
+  "actor": [
+    {
+      "@type": "Person",
+      "name": "Interprete 1",
+      "sameAs": "https://cinema.esempio/persone/1"
+    },
+    {
+      "@type": "Person",
+      "name": "Interprete 2",
+      "sameAs": "https://cinema.esempio/persone/2"
+    },
+    {
+      "@type": "Person",
+      "name": "Interprete 3",
+      "sameAs": "https://cinema.esempio/persone/3"
+    },
+    {
+      "@type": "Person",
+      "name": "Interprete 4",
+      "sameAs": "https://cinema.esempio/persone/4"
+    },
+    {
+      "@type": "Person",
+      "name": "Interprete 5",
+      "sameAs": "https://cinema.esempio/persone/5"
+    },
+    {
+      "@type": "Person",
+      "name": "Interprete 6",
+      "sameAs": "https://cinema.esempio/persone/6"
+    },
+    {
+      "@type": "Person",
+      "name": "Interprete 7",
+      "sameAs": "https://cinema.esempio/persone/7"
+    }
+  ],
+  "director": [
+    {
+      "@type": "Person",
+      "name": "Regista Uno",
+      "sameAs": "https://cinema.esempio/persone/r1"
+    },
+    {
+      "@type": "Person",
+      "name": "Regista Due",
+      "sameAs": "https://cinema.esempio/persone/r2"
+    }
+  ],
+  "aggregateRating": {
+    "@type": "AggregateRating",
+    "ratingValue": "82",
+    "bestRating": "100",
+    "ratingCount": "1240"
+  },
+  "trailer": {
+    "@type": "VideoObject",
+    "name": "Trailer",
+    "uploadDate": "2023-11-04",
+    "embedUrl": "https://video.esempio/embed/x"
+  }
+}
