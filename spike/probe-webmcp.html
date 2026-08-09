@@ -1,0 +1,20 @@
+<!doctype html>
+<html>
+  <head>
+    <title>probe webmcp</title>
+  </head>
+  <body>
+    <div id="out">pending</div>
+    <script>
+      // Probe: quale superficie WebMCP espone questo browser?
+      const api = document.modelContext ?? navigator.modelContext ?? null;
+      const result = {
+        chrome: (navigator.userAgent.match(/Chrome\/([\d.]+)/) || [])[1] ?? 'n/d',
+        'document.modelContext': typeof document.modelContext,
+        'navigator.modelContext': typeof navigator.modelContext,
+        methods: api ? Object.getOwnPropertyNames(Object.getPrototypeOf(api)).join(',') : null,
+      };
+      document.getElementById('out').textContent = 'PROBE_RESULT=' + JSON.stringify(result);
+    </script>
+  </body>
+</html>

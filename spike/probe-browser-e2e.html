@@ -1,0 +1,131 @@
+<!doctype html>
+<html>
+  <head>
+    <title>spike browser e2e</title>
+
+    <!-- Il markup che un sito qualsiasi ha già. Nessuna modifica richiesta. -->
+    <script type="application/ld+json">
+      {
+        "@context": "https://schema.org",
+        "@type": "Product",
+        "name": "Zaino Trekking 45L",
+        "sku": "ZT-45-BLU",
+        "offers": {
+          "@type": "Offer",
+          "price": "129.90",
+          "priceCurrency": "EUR",
+          "availability": "https://schema.org/InStock"
+        }
+      }
+    </script>
+  </head>
+  <body>
+    <div id="out">pending</div>
+
+    <script>
+      // ---- quello che farà @agenticschema/browser, in versione minima ----
+      (async () => {
+        const log = [];
+        const check = (id, ok, detail) => log.push(`${ok ? 'PASS' : 'FAIL'}  ${id}: ${detail}`);
+
+        // Marker di avanzamento: se il probe si blocca, il div dice esattamente dove.
+        const out = document.getElementById('out');
+        const step = (s) => (out.textContent = 'E2E_RESULT=' + JSON.stringify([...log, `>> ${s}`]));
+        window.onerror = (m) => (out.textContent = 'E2E_RESULT=' + JSON.stringify([...log, `ERRORE ${m}`]));
+
+        const api = document.modelContext ?? navigator.modelContext;
+        if (!api) {
+          out.textContent = 'E2E_RESULT=' + JSON.stringify(['FAIL  nessuna API modelContext']);
+          return;
+        }
+        step('api trovata');
+
+        // 1. extract dal DOM (qui il DOM c'è davvero, niente regex)
+        const nodes = [...document.querySelectorAll('script[type="application/ld+json"]')].flatMap((s) => {
+          try {
+            const p = JSON.parse(s.textContent);
+            return p['@graph'] ?? [p];
+          } catch {
+            return [];
+          }
+        });
+        check('extract', nodes.length === 1 && nodes[0]['@type'] === 'Product', `${nodes.length} entità dal DOM`);
+
+        // 2. map -> descrittori
+        const product = nodes[0];
+        const descriptors = [
+          {
+            name: 'get_product_offer',
+            description: 'Prezzo, valuta e disponibilità del prodotto in questa pagina.',
+            inputSchema: { type: 'object', properties: {}, additionalProperties: false },
+            execute: async () => ({
+              content: [
+                {
+                  type: 'text',
+                  text: JSON.stringify({
+                    price: product.offers.price,
+                    priceCurrency: product.offers.priceCurrency,
+                    availability: product.offers.availability,
+                  }),
+                },
+              ],
+            }),
+          },
+        ];
+
+        // 3. registerTool, con AbortController per il ciclo di vita (niente unregisterTool nell'API)
+        step('prima di registerTool');
+        const controller = new AbortController();
+        // NON awaitato di proposito: se la promise non risolve senza agente connesso,
+        // awaitarla bloccherebbe l'init dell'adapter su ogni pagina.
+        const registrations = descriptors.map((d) => api.registerTool(d, { signal: controller.signal }));
+        step('registerTool chiamato (non awaitato)');
+
+        const settled = await Promise.race([
+          Promise.allSettled(registrations).then(() => 'risolta'),
+          new Promise((r) => setTimeout(() => r('NON risolve senza agente'), 1500)),
+        ]);
+        check('registerTool-promise', true, `la promise di registerTool: ${settled}`);
+
+        // 4. readback con getTools(). Sotto race: se non risolve senza agente connesso,
+        // l'adapter NON può usarlo per il diffing sulle route SPA.
+        step('prima di getTools');
+        const TIMEOUT = Symbol('timeout');
+        const withTimeout = (p, ms) =>
+          Promise.race([p, new Promise((r) => setTimeout(() => r(TIMEOUT), ms))]);
+
+        const registered = await withTimeout(api.getTools(), 2000);
+        if (registered === TIMEOUT) {
+          check('getTools', false, 'NON risolve senza agente connesso -> inutilizzabile per il diffing');
+        } else {
+          check(
+            'registerTool+getTools',
+            registered.some((t) => t.name === 'get_product_offer'),
+            `${registered.length} tool: ${registered.map((t) => t.name).join(',')}`
+          );
+        }
+
+        // 5. executeTool — l'agente invoca davvero e riceve i dati del JSON-LD
+        step('prima di executeTool');
+        const res = await withTimeout(api.executeTool('get_product_offer', {}), 2000);
+        if (res === TIMEOUT) {
+          check('executeTool', false, 'NON risolve senza agente connesso');
+        } else {
+          check('executeTool', JSON.stringify(res).includes('129.90'), 'risposta contiene il prezzo dal JSON-LD');
+        }
+
+        // 6. abort -> il tool sparisce (ciclo di vita su cambio route)
+        step('prima di abort');
+        controller.abort();
+        const afterAbort = await withTimeout(api.getTools(), 2000);
+        check(
+          'abort',
+          afterAbort === TIMEOUT ? false : afterAbort.length === 0,
+          afterAbort === TIMEOUT ? 'getTools non risolve' : `dopo abort restano ${afterAbort.length} tool`
+        );
+
+        out.textContent = 'E2E_RESULT=' + JSON.stringify(log);
+      })();
+    </script>
+  </body>
+</html>
