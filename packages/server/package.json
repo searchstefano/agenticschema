@@ -1,6 +1,6 @@
 {
   "name": "@agenticschema/server",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "type": "module",
   "description": "Espone lo Schema.org di una pagina come server MCP (stdio o HTTP).",
   "license": "MIT",
@@ -13,14 +13,14 @@
     }
   },
   "bin": {
-    "agenticschema": "./dist/cli.js"
+    "agenticschema": "dist/cli.js"
   },
   "files": [
     "dist"
   ],
   "dependencies": {
-    "@agenticschema/core": "0.0.0",
-    "@agenticschema/profiles": "0.0.0",
+    "@agenticschema/core": "0.1.0",
+    "@agenticschema/profiles": "0.1.0",
     "@modelcontextprotocol/server": "^2.0.0",
     "ajv": "^8.17.1",
     "happy-dom": "^20.11.2"

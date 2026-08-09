@@ -1,6 +1,6 @@
 {
   "name": "@agenticschema/browser",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "type": "module",
   "description": "Registra lo Schema.org della pagina come tool WebMCP, con un tag script.",
   "license": "MIT",
@@ -25,8 +25,8 @@
     "dist"
   ],
   "dependencies": {
-    "@agenticschema/core": "0.0.0",
-    "@agenticschema/profiles": "0.0.0",
+    "@agenticschema/core": "0.1.0",
+    "@agenticschema/profiles": "0.1.0",
     "@mcp-b/webmcp-polyfill": "^4.0.0"
   },
   "scripts": {
