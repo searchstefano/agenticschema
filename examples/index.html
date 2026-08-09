@@ -1,0 +1,122 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>agenticschema — live examples</title>
+    <style>
+      :root {
+        color-scheme: light dark;
+        --fg: #14171a;
+        --muted: #5b6570;
+        --line: #d8dee4;
+        --bg: #fff;
+        --card: #f6f8fa;
+      }
+      @media (prefers-color-scheme: dark) {
+        :root {
+          --fg: #e6edf3;
+          --muted: #9aa7b2;
+          --line: #30363d;
+          --bg: #0d1117;
+          --card: #161b22;
+        }
+      }
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+        padding: 3rem 1.25rem 4rem;
+        background: var(--bg);
+        color: var(--fg);
+        font: 16px/1.6 ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
+      }
+      main {
+        max-width: 46rem;
+        margin: 0 auto;
+      }
+      h1 {
+        font-size: 1.75rem;
+        margin: 0 0 0.5rem;
+      }
+      .lede {
+        color: var(--muted);
+        margin: 0 0 2.5rem;
+      }
+      a.card {
+        display: block;
+        padding: 1.25rem 1.4rem;
+        margin-bottom: 1rem;
+        border: 1px solid var(--line);
+        border-radius: 10px;
+        background: var(--card);
+        color: inherit;
+        text-decoration: none;
+      }
+      a.card:hover {
+        border-color: var(--muted);
+      }
+      a.card h2 {
+        font-size: 1.05rem;
+        margin: 0 0 0.35rem;
+      }
+      a.card p {
+        margin: 0;
+        color: var(--muted);
+        font-size: 0.94rem;
+      }
+      code {
+        font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+        font-size: 0.88em;
+        background: var(--card);
+        border: 1px solid var(--line);
+        border-radius: 4px;
+        padding: 0.1em 0.35em;
+      }
+      footer {
+        margin-top: 2.5rem;
+        padding-top: 1.25rem;
+        border-top: 1px solid var(--line);
+        color: var(--muted);
+        font-size: 0.9rem;
+      }
+      footer a {
+        color: inherit;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>agenticschema</h1>
+      <p class="lede">
+        Turn the Schema.org markup a page already has into MCP tools an AI agent can call.
+        Both pages below run against the packages published on npm, not a local build.
+      </p>
+
+      <a class="card" href="playground.html">
+        <h2>Playground &rarr;</h2>
+        <p>
+          Paste any JSON-LD and watch the tools appear. Samples included; the hostile one is
+          worth a look, because it shows what gets refused and why.
+        </p>
+      </a>
+
+      <a class="card" href="demo.html">
+        <h2>Live WebMCP page &rarr;</h2>
+        <p>
+          A product page carrying the script tag. Open it with an agent attached and the tools
+          are callable. Open it without one and the console says so, rather than looking fine.
+        </p>
+      </a>
+
+      <footer>
+        <p>
+          Reading a real page needs no browser at all:
+          <code>npx @agenticschema/server &lt;url&gt;</code>. Source and documentation on
+          <a href="https://github.com/searchstefano/agenticschema">GitHub</a>.
+        </p>
+      </footer>
+    </main>
+  </body>
+</html>

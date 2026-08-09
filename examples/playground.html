@@ -161,6 +161,7 @@
           <button data-sample="product">E-commerce</button>
           <button data-sample="faq">FAQ</button>
           <button data-sample="business">Local business</button>
+          <button data-sample="search">Site search</button>
           <button data-sample="hostile">Hostile markup</button>
         </div>
         <textarea id="input" spellcheck="false"></textarea>
@@ -178,12 +179,18 @@
       `@agenticschema/core` as a bare specifier. A browser cannot resolve that on
       its own, hence the import map. In production the self-contained CDN bundle
       needs none of this.
+
+      These point at the published packages rather than a local build, at exact
+      versions. Exact versions are the only jsDelivr URLs that are never stale:
+      a range keeps serving whatever an edge cached, for days. This page is also
+      what would break first if a release were broken, which is rather the point
+      of pointing it at what users actually download.
     -->
     <script type="importmap">
       {
         "imports": {
-          "@agenticschema/core": "../packages/core/dist/index.js",
-          "@agenticschema/profiles": "../packages/profiles/dist/index.js"
+          "@agenticschema/core": "https://cdn.jsdelivr.net/npm/@agenticschema/core@0.1.1/dist/index.js",
+          "@agenticschema/profiles": "https://cdn.jsdelivr.net/npm/@agenticschema/profiles@0.1.1/dist/index.js"
         }
       }
     </script>
@@ -227,6 +234,25 @@
   "openingHoursSpecification": [
     { "@type": "OpeningHoursSpecification", "dayOfWeek": "Monday", "opens": "12:00", "closes": "15:00" }
   ]
+}`),
+        // The one shape that produces an *executable* tool rather than a reader.
+        // This is the markup Open Food Facts publishes, rebuilt with our own
+        // values: an agent that gets `search_web_site` can query the site
+        // directly instead of going through a search engine. Note the target has
+        // to sit on the page's own origin, or the guard drops it.
+        search: ld(`{
+  "@context": "https://schema.org",
+  "@type": "WebSite",
+  "name": "Example Shop",
+  "url": "https://shop.example/",
+  "potentialAction": {
+    "@type": "SearchAction",
+    "target": {
+      "@type": "EntryPoint",
+      "urlTemplate": "https://shop.example/search?q={search_term_string}"
+    },
+    "query-input": "required name=search_term_string"
+  }
 }`),
         hostile: ld(`{
   "@context": "https://schema.org",

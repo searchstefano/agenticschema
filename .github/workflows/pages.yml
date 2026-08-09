@@ -1,0 +1,47 @@
+name: Pages
+
+# The examples are published straight from the repository, with no build step:
+# they load the packages from jsDelivr at exact versions. That is deliberate. A
+# demo built from local sources keeps working while the published package is
+# broken, which is exactly the failure that shipped in 0.1.1.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'examples/**'
+      - '.github/workflows/pages.yml'
+  workflow_dispatch:
+
+permissions: {}
+
+# One deploy at a time, and never cancel one halfway: a cancelled deploy can
+# leave the site serving a half-uploaded artifact.
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: read
+      pages: write # publish the artifact
+      id-token: write # the OIDC token deploy-pages exchanges
+
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/configure-pages@v5
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: examples
+
+      - id: deploy
+        uses: actions/deploy-pages@v4

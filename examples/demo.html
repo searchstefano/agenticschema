@@ -104,11 +104,12 @@
     </ol>
 
     <script type="module">
-      // Points at the local build. From a CDN this would be
-      // https://cdn.jsdelivr.net/npm/@agenticschema/browser@0.1
+      // The published bundle, at an exact version. Exact is deliberate: jsDelivr
+      // keeps serving a cached build on unversioned and range URLs for days, so
+      // a page meant to prove the current release works has to ask for it by name.
       // `auto.js` starts itself, so use the handle it exposes rather than calling
       // start() again, which would run it a second time and register everything twice.
-      import { ready } from '../packages/browser/dist/cdn/auto.js';
+      import { ready } from 'https://cdn.jsdelivr.net/npm/@agenticschema/browser@0.1.2/dist/cdn/auto.js';
 
       const status = document.getElementById('status');
       const list = document.getElementById('list');

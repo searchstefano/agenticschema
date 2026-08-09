@@ -7,7 +7,7 @@ gap: it reads the `JSON-LD`, microdata and RDFa already in the page and emits Mo
 Protocol tools — no new API to write, no backend to run.
 
 ```
-                    ┌──────────────── @agenticschema/core ────────────────┐
+                    ┌──────────────── @agenticschema/core ─────────────────┐
  Document │ HTML    │                                                      │
  │ JSON-LD ───────► │  extract ──► normalize ──► select ──► map ──► guard  │ ──► ToolDescriptor[]
                     └──────────────────────────────────────────────────────┘
@@ -19,13 +19,29 @@ Protocol tools — no new API to write, no backend to run.
              (script tag, WebMCP)                     (works with any MCP client today)
 ```
 
-## Try it in 30 seconds
+## Try it
 
-Point an MCP server at any URL and use it from Claude Desktop:
+Three ways in, in rising order of commitment.
+
+### 1. In the browser, nothing installed
+
+**[Open the playground →](https://searchstefano.github.io/agenticschema/)**
+
+Paste any JSON-LD and watch the tools appear. Try the hostile sample: it is the fastest way to
+see what the library *refuses* and why. Alongside it,
+[a live page carrying the script tag](https://searchstefano.github.io/agenticschema/demo.html)
+for the WebMCP path end to end.
+
+Both pages load the packages from jsDelivr at exact versions, so what you are trying is what
+you would ship, not a local build.
+
+### 2. Read a real page from the terminal
 
 ```bash
 npx @agenticschema/server https://en.wikipedia.org/wiki/Backpack
 ```
+
+Wire it into Claude Desktop:
 
 ```json
 {
@@ -38,10 +54,9 @@ npx @agenticschema/server https://en.wikipedia.org/wiki/Backpack
 }
 ```
 
-That page yields `get_article`, `get_article_author`, `get_article_publisher`, `get_media` —
-plus every entity as a readable MCP resource.
+Every entity also becomes a readable MCP resource, which the browser adapter cannot do.
 
-## In the browser
+### 3. On your own site
 
 ```html
 <script type="module" src="https://cdn.jsdelivr.net/npm/@agenticschema/browser@0.1"></script>
@@ -52,15 +67,47 @@ The page registers its tools through [WebMCP](https://github.com/webmachinelearn
 
 Three things to know before pasting that in:
 
-- **Pin the version.** The unpinned specifier always serves the latest release. Note that
-  **0.1.1 and earlier register no tools at all** on a browser without native WebMCP: the
-  polyfill was left out of the bundle. Upgrade rather than debug it.
+- **Pin the version.** The unpinned specifier always serves the latest release, and jsDelivr
+  caches unversioned URLs at the edge for days — long enough to keep handing out a build you
+  have already replaced. Note that **0.1.1 and earlier register no tools at all** on a browser
+  without native WebMCP: the polyfill was left out of the bundle.
 - **Content-Security-Policy.** A page with a CSP has to allow `cdn.jsdelivr.net` in
   `script-src`, or the tag never executes. Self-host `dist/cdn/auto.js` if you would rather
   not open the CDN — it is a single self-contained file.
 - **Registered is not the same as reachable.** The tag publishes the tools to the page. An
   agent still has to be attached to the tab to call them, through a WebMCP-capable browser or
   an extension. With nothing attached the tools are there and no one is asking.
+
+## What it produces on real pages
+
+Two pages, both openly licensed, run through the pipeline exactly as they are published today:
+
+```
+en.wikipedia.org/wiki/Backpack
+  read    get_article
+  read    get_article_author
+  read    get_article_publisher
+  read    get_media
+
+world.openfoodfacts.org/product/3017620422003
+  read    get_web_site
+  read    get_organization
+  read    get_search_action
+  action  search_web_site(search_term_string)
+```
+
+The second one is the interesting case. `search_web_site` is **executable**: an agent holding
+it queries Open Food Facts directly, instead of guessing a URL or going through a search
+engine. It exists because that page publishes a `SearchAction` whose target sits on its own
+origin, which is the only shape that gets past the guard described below.
+
+`get_search_action` in that list is noise — a reader over the action's own definition, which
+is of no use to an agent. It is a known rough edge, left visible here rather than trimmed out
+of the example.
+
+Sites were picked for their licensing, not their fame. Wikipedia and Open Food Facts both
+publish under open licences and permit automated access; plenty of better-known sites forbid
+it in their terms, and pointing this tool at them is on you.
 
 ## Three constraints that shaped the design
 
