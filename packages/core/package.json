@@ -1,0 +1,42 @@
+{
+  "name": "@agenticschema/core",
+  "version": "0.0.0",
+  "type": "module",
+  "description": "Pipeline Schema.org -> descrittori di tool MCP. Neutra rispetto al transport.",
+  "license": "MIT",
+  "sideEffects": false,
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsup src/index.ts --format esm --clean && tsc -p tsconfig.build.json"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/searchstefano/agenticschema.git",
+    "directory": "packages/core"
+  },
+  "bugs": {
+    "url": "https://github.com/searchstefano/agenticschema/issues"
+  },
+  "homepage": "https://github.com/searchstefano/agenticschema/tree/main/packages/core#readme",
+  "keywords": [
+    "schema.org",
+    "json-ld",
+    "microdata",
+    "rdfa",
+    "mcp",
+    "model-context-protocol",
+    "structured-data",
+    "ai-agents"
+  ],
+  "author": "searchstefano"
+}
