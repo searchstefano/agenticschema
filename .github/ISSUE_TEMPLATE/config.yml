@@ -1,0 +1,8 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Security vulnerability
+    url: https://github.com/searchstefano/agenticschema/security/advisories/new
+    about: Please report privately rather than in a public issue. See SECURITY.md.
+  - name: Question or idea
+    url: https://github.com/searchstefano/agenticschema/discussions
+    about: For anything that is not a bug report or a concrete proposal.

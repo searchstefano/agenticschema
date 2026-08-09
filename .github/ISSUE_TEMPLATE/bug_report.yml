@@ -1,0 +1,69 @@
+name: Bug report
+description: Something produces the wrong tools, the wrong data, or crashes.
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        A minimal reproduction is worth more than a long description. Most bugs here come down
+        to a specific shape of markup, so the markup is usually the whole report.
+
+  - type: textarea
+    id: markup
+    attributes:
+      label: The markup
+      description: >
+        The JSON-LD, microdata or RDFa that triggers it — trimmed to the smallest version that
+        still reproduces. Please redact anything private; synthetic values are fine.
+      render: html
+      placeholder: |
+        <script type="application/ld+json">
+        { "@context": "https://schema.org", "@type": "Product", "name": "..." }
+        </script>
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: What you expected, and what happened instead
+      placeholder: |
+        Expected: a get_product_offer tool
+        Got: no tools, and a diagnostic saying ...
+    validations:
+      required: true
+
+  - type: dropdown
+    id: surface
+    attributes:
+      label: Where
+      options:
+        - '@agenticschema/core (the pipeline itself)'
+        - '@agenticschema/browser (WebMCP / script tag)'
+        - '@agenticschema/server (MCP server)'
+        - Not sure
+    validations:
+      required: true
+
+  - type: textarea
+    id: diagnostics
+    attributes:
+      label: Diagnostics
+      description: >
+        The `diagnostics` array from `toTools()`, or the server's stderr output. This usually
+        says outright why something was skipped.
+      render: text
+
+  - type: input
+    id: versions
+    attributes:
+      label: Versions
+      placeholder: 'agenticschema 0.1.0, Node 22.3, Chrome 151'
+
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Before submitting
+      options:
+        - label: I checked whether the behaviour is intentional in SECURITY.md — actions are skipped by design in several cases
+          required: true

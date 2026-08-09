@@ -1,0 +1,43 @@
+name: Idea or feature request
+description: Something the library should do and does not.
+labels: [enhancement]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Worth knowing before you write: some things are deliberately out of scope. Actions with
+        side effects are never auto-generated, and page text never enters a tool description.
+        Both are in SECURITY.md, with the reasoning.
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: What are you trying to do?
+      description: The situation, not the solution. What does an agent fail to do today?
+    validations:
+      required: true
+
+  - type: textarea
+    id: markup
+    attributes:
+      label: Example markup, if relevant
+      description: If this is about a Schema.org type or property that is handled badly, show it.
+      render: html
+
+  - type: textarea
+    id: idea
+    attributes:
+      label: What you have in mind
+      description: Optional. A rough shape is fine; the problem above matters more.
+
+  - type: dropdown
+    id: workaround
+    attributes:
+      label: Can defineTool already solve this?
+      description: >
+        defineTool exists for anything auto-derivation cannot give you. If you have tried it and
+        it does not fit, saying why is the most useful part of this report.
+      options:
+        - Have not tried it
+        - Tried it, it does not fit
+        - Not applicable
