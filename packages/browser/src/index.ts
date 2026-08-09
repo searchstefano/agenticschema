@@ -39,8 +39,6 @@ export interface Handle {
   stop(): void;
 }
 
-const POLYFILL = '@mcp-b/webmcp-polyfill';
-
 type ProfileOptions = Pick<PipelineOptions, 'profiles' | 'ancestorsOf'>;
 let profilesPromise: Promise<ProfileOptions> | undefined;
 
@@ -53,7 +51,16 @@ let profilesPromise: Promise<ProfileOptions> | undefined;
 function loadProfiles(): Promise<ProfileOptions> {
   profilesPromise ??= import('@agenticschema/profiles')
     .then((m) => m.schemaOrgProfiles as ProfileOptions)
-    .catch(() => ({}) as ProfileOptions);
+    .catch((err: unknown) => {
+      // Out loud. Swallowing this is what hid the 0.1.1 packaging bug: the tools
+      // still showed up, only with generic names, so the page looked healthy and
+      // the damage was visible nowhere except in the tool list itself.
+      console.warn(
+        '[agenticschema] profiles could not be loaded, falling back to generic tool names:',
+        err
+      );
+      return {} as ProfileOptions;
+    });
   return profilesPromise;
 }
 
@@ -72,7 +79,11 @@ async function resolveApi(): Promise<ModelContext | undefined> {
   if (existing) return existing;
 
   try {
-    await import(/* @vite-ignore */ POLYFILL);
+    // The specifier stays a literal on purpose. Behind a variable, esbuild cannot
+    // see the import and leaves the bare specifier in the bundle, where a browser
+    // has nothing to resolve it with. That shipped in 0.1.1 and meant the script
+    // tag registered nothing at all unless the browser had WebMCP natively.
+    await import('@mcp-b/webmcp-polyfill');
   } catch {
     return undefined;
   }
@@ -86,7 +97,13 @@ export async function start(options: StartOptions = {}): Promise<Handle> {
   const resolved = options.modelContext ?? (await resolveApi());
   if (!resolved) {
     // Not an error. A site that includes the script must not break on a browser
-    // without WebMCP where the polyfill cannot be loaded either.
+    // without WebMCP where the polyfill cannot be loaded either. It must not be
+    // silent either: registering nothing looks exactly like working correctly
+    // until someone goes looking for the tools.
+    console.warn(
+      '[agenticschema] no WebMCP surface available: document.modelContext is missing and ' +
+        'the polyfill did not load. No tools registered.'
+    );
     return { tools: () => [], refresh: async () => {}, stop: () => {} };
   }
   // Rebound after the guard: the narrowing does not survive into the closures.

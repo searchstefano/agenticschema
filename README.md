@@ -1,4 +1,4 @@
-# agenticschema
+# AgenticSchema &middot; [![GitHub license](https://img.shields.io/badge/license-MIT-blue.svg)](https://github.com/searchstefano/agenticschema/blob/main/LICENSE) [![npm version](https://img.shields.io/npm/v/@agenticschema/core.svg?style=flat)](https://www.npmjs.com/package/@agenticschema/core) [![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](https://github.com/searchstefano/agenticschema/blob/main/CONTRIBUTING.md)
 
 Turn the Schema.org markup a page already has into MCP tools an AI agent can call.
 
@@ -44,11 +44,23 @@ plus every entity as a readable MCP resource.
 ## In the browser
 
 ```html
-<script type="module" src="https://cdn.jsdelivr.net/npm/@agenticschema/browser" defer></script>
+<script type="module" src="https://cdn.jsdelivr.net/npm/@agenticschema/browser@0.1"></script>
 ```
 
 The page registers its tools through [WebMCP](https://github.com/webmachinelearning/webmcp)
 (`document.modelContext`). SPA route changes are picked up automatically.
+
+Three things to know before pasting that in:
+
+- **Pin the version.** The unpinned specifier always serves the latest release. Note that
+  **0.1.1 and earlier register no tools at all** on a browser without native WebMCP: the
+  polyfill was left out of the bundle. Upgrade rather than debug it.
+- **Content-Security-Policy.** A page with a CSP has to allow `cdn.jsdelivr.net` in
+  `script-src`, or the tag never executes. Self-host `dist/cdn/auto.js` if you would rather
+  not open the CDN — it is a single self-contained file.
+- **Registered is not the same as reachable.** The tag publishes the tools to the page. An
+  agent still has to be attached to the tab to call them, through a WebMCP-capable browser or
+  an extension. With nothing attached the tools are there and no one is asking.
 
 ## Three constraints that shaped the design
 
@@ -121,7 +133,7 @@ nine indistinguishable `get_person` tools are useless to an agent; one `list_per
 | --- | --- |
 | `@agenticschema/core` | The pipeline. No MCP, no DOM assumptions. Zero runtime dependencies. |
 | `@agenticschema/profiles` | ~20 hand-written type profiles + the Schema.org hierarchy. |
-| `@agenticschema/browser` | WebMCP adapter. 6.5 KB gzip initial payload; profiles load lazily. |
+| `@agenticschema/browser` | WebMCP adapter. Script-tag build is one self-contained file, 27 KB gzip, polyfill included. |
 | `@agenticschema/server` | MCP server over stdio or Streamable HTTP. |
 
 ## How it compares
@@ -139,10 +151,11 @@ The mapping layer — Schema.org to MCP — is the part that did not exist.
 
 ```bash
 npm install
-npm test          # 94 tests, including a corpus captured from real pages
+npm test          # 100 tests, including a corpus captured from real pages
 npm run typecheck
 npm run build
-npm run size      # fails if the initial browser payload exceeds 8 KB gzip
+npm run size      # fails if the script-tag build has an import a browser cannot
+                  # resolve, or goes over 30 KB gzip
 ```
 
 `npm run corpus:fetch` refreshes the real-page fixtures.
