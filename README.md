@@ -19,6 +19,28 @@ Protocol tools — no new API to write, no backend to run.
              (script tag, WebMCP)                     (works with any MCP client today)
 ```
 
+**That first sentence is measurable, not a pitch.** schema.org publishes the usage statistics from
+Google's crawl — how many domains use each term:
+
+| Term | Domains |
+| --- | --- |
+| `potentialAction` | 10M+ |
+| `SearchAction` | 10M+ |
+| `EntryPoint` | 10M+ |
+| `urlTemplate` | 10M+ |
+| `query-input` | 10M+ |
+
+Over ten million domains already declare how to search them, machine-readably, today. That is a
+capability this library hands to an agent as a callable tool, and nobody had to publish anything new
+for it to work. The vocabulary's tail is shorter than it looks, too: of 958 types, 16 appear on 10M+
+domains, 50 on 1M+ and 95 on 100K+ — so a hand-written profile registry can cover the part of the
+web that exists in practice.
+
+One caveat worth stating plainly: those counts are what sites **declare**, not what is well formed
+enough to map. That is a different number, and the table does not claim it. Source:
+[schemaorg/schemaorg `data/public_stats/google`](https://github.com/schemaorg/schemaorg/tree/main/data/public_stats/google),
+2026-07.
+
 ---
 
 ## Contents

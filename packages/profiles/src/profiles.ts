@@ -14,8 +14,8 @@ export const PROFILES: readonly Profile[] = [
     slug: 'product',
     read: [
       {
-        description: 'Details of the product on this page: name, description, SKU, brand, category.',
-        pick: ['name', 'description', 'sku', 'mpn', 'gtin13', 'brand', 'category', 'color', 'material', 'size', 'model'],
+        description: 'Details of the product on this page: name, description, image, SKU, brand, category.',
+        pick: ['name', 'description', 'image', 'sku', 'mpn', 'gtin13', 'brand', 'category', 'color', 'material', 'size', 'model'],
       },
       {
         name: 'offer',
@@ -47,7 +47,7 @@ export const PROFILES: readonly Profile[] = [
     read: [
       {
         description: 'The article on this page: headline, summary, publication dates, section.',
-        pick: ['headline', 'alternativeHeadline', 'description', 'datePublished', 'dateModified', 'articleSection', 'keywords', 'wordCount', 'inLanguage', 'url'],
+        pick: ['headline', 'alternativeHeadline', 'description', 'image', 'datePublished', 'dateModified', 'articleSection', 'keywords', 'wordCount', 'inLanguage', 'url'],
       },
       { name: 'author', from: 'author', list: true, description: 'Author or authors of the article.' },
       { name: 'publisher', from: 'publisher', description: 'Publisher of the article.' },
@@ -79,7 +79,7 @@ export const PROFILES: readonly Profile[] = [
     read: [
       {
         description: 'The event on this page: name, description, start and end dates, status.',
-        pick: ['name', 'description', 'startDate', 'endDate', 'doorTime', 'eventStatus', 'eventAttendanceMode', 'inLanguage', 'url'],
+        pick: ['name', 'description', 'image', 'startDate', 'endDate', 'doorTime', 'eventStatus', 'eventAttendanceMode', 'inLanguage', 'url'],
       },
       { name: 'location', from: 'location', description: 'Where the event takes place.' },
       { name: 'tickets', from: 'offers', list: true, description: 'Ticket prices and availability for the event.' },
@@ -92,7 +92,7 @@ export const PROFILES: readonly Profile[] = [
     read: [
       {
         description: 'The business on this page: name, contact details, price range.',
-        pick: ['name', 'description', 'telephone', 'email', 'faxNumber', 'priceRange', 'currenciesAccepted', 'paymentAccepted', 'url', 'servesCuisine'],
+        pick: ['name', 'description', 'image', 'telephone', 'email', 'faxNumber', 'priceRange', 'currenciesAccepted', 'paymentAccepted', 'url', 'servesCuisine'],
       },
       { name: 'address', from: 'address', description: 'Postal address of the business.' },
       { name: 'hours', from: 'openingHoursSpecification', list: true, description: 'Opening hours of the business, per day of week.' },
@@ -106,7 +106,7 @@ export const PROFILES: readonly Profile[] = [
     read: [
       {
         description: 'The recipe on this page: ingredients, instructions, times, yield.',
-        pick: ['name', 'description', 'recipeYield', 'prepTime', 'cookTime', 'totalTime', 'recipeCategory', 'recipeCuisine', 'recipeIngredient', 'recipeInstructions', 'suitableForDiet'],
+        pick: ['name', 'description', 'image', 'recipeYield', 'prepTime', 'cookTime', 'totalTime', 'recipeCategory', 'recipeCuisine', 'recipeIngredient', 'recipeInstructions', 'suitableForDiet'],
       },
       { name: 'nutrition', from: 'nutrition', description: 'Nutritional information for the recipe.' },
       { name: 'rating', from: 'aggregateRating', description: 'Aggregate rating of the recipe.' },
@@ -144,7 +144,7 @@ export const PROFILES: readonly Profile[] = [
     read: [
       {
         description: 'The course on this page: name, description, code, prerequisites.',
-        pick: ['name', 'description', 'courseCode', 'coursePrerequisites', 'educationalCredentialAwarded', 'inLanguage', 'timeRequired'],
+        pick: ['name', 'description', 'image', 'courseCode', 'coursePrerequisites', 'educationalCredentialAwarded', 'inLanguage', 'timeRequired'],
       },
       { name: 'provider', from: 'provider', description: 'Institution providing the course.' },
       { name: 'instances', from: 'hasCourseInstance', list: true, description: 'Scheduled instances of the course.' },
@@ -156,7 +156,7 @@ export const PROFILES: readonly Profile[] = [
     read: [
       {
         description: 'The software application on this page: name, category, platform, version.',
-        pick: ['name', 'description', 'applicationCategory', 'applicationSubCategory', 'operatingSystem', 'softwareVersion', 'fileSize', 'downloadUrl', 'permissions'],
+        pick: ['name', 'description', 'image', 'applicationCategory', 'applicationSubCategory', 'operatingSystem', 'softwareVersion', 'fileSize', 'downloadUrl', 'permissions'],
       },
       { name: 'offer', from: 'offers', description: 'Price and availability of the application.' },
       { name: 'rating', from: 'aggregateRating', description: 'Aggregate user rating of the application.' },
@@ -178,7 +178,7 @@ export const PROFILES: readonly Profile[] = [
     read: [
       {
         description: 'The person described on this page: name, role, contact details, profiles.',
-        pick: ['name', 'givenName', 'familyName', 'jobTitle', 'description', 'email', 'telephone', 'url', 'sameAs', 'knowsLanguage', 'nationality'],
+        pick: ['name', 'givenName', 'familyName', 'jobTitle', 'description', 'image', 'email', 'telephone', 'url', 'sameAs', 'knowsLanguage', 'nationality'],
       },
       { name: 'employer', from: 'worksFor', description: 'Organization the person works for.' },
       { name: 'address', from: 'address', description: 'Address of the person.' },
@@ -190,7 +190,7 @@ export const PROFILES: readonly Profile[] = [
     read: [
       {
         description: 'The organization described on this page: name, contact details, identifiers.',
-        pick: ['name', 'legalName', 'alternateName', 'description', 'url', 'telephone', 'email', 'sameAs', 'vatID', 'taxID', 'foundingDate', 'numberOfEmployees'],
+        pick: ['name', 'legalName', 'alternateName', 'description', 'logo', 'image', 'url', 'telephone', 'email', 'sameAs', 'vatID', 'taxID', 'foundingDate', 'numberOfEmployees'],
       },
       { name: 'address', from: 'address', description: 'Postal address of the organization.' },
       { name: 'contacts', from: 'contactPoint', list: true, description: 'Contact points of the organization.' },
@@ -232,7 +232,7 @@ export const PROFILES: readonly Profile[] = [
     read: [
       {
         description: 'The book on this page: title, ISBN, edition, format, page count.',
-        pick: ['name', 'description', 'isbn', 'bookEdition', 'bookFormat', 'numberOfPages', 'datePublished', 'inLanguage', 'genre'],
+        pick: ['name', 'description', 'image', 'isbn', 'bookEdition', 'bookFormat', 'numberOfPages', 'datePublished', 'inLanguage', 'genre'],
       },
       { name: 'author', from: 'author', list: true, description: 'Author or authors of the book.' },
       { name: 'publisher', from: 'publisher', description: 'Publisher of the book.' },
@@ -244,7 +244,7 @@ export const PROFILES: readonly Profile[] = [
     read: [
       {
         description: 'The film or show on this page: title, duration, genre, content rating.',
-        pick: ['name', 'description', 'duration', 'dateCreated', 'datePublished', 'contentRating', 'genre', 'inLanguage', 'countryOfOrigin'],
+        pick: ['name', 'description', 'image', 'duration', 'dateCreated', 'datePublished', 'contentRating', 'genre', 'inLanguage', 'countryOfOrigin'],
       },
       { name: 'directors', from: 'director', list: true, description: 'Directors of the film or show.' },
       { name: 'cast', from: 'actor', list: true, description: 'Cast of the film or show.' },
@@ -269,7 +269,7 @@ export const PROFILES: readonly Profile[] = [
     read: [
       {
         description: 'The property on this page: size, rooms, amenities.',
-        pick: ['name', 'description', 'floorSize', 'numberOfRooms', 'numberOfBedrooms', 'numberOfBathroomsTotal', 'yearBuilt', 'petsAllowed', 'amenityFeature'],
+        pick: ['name', 'description', 'image', 'floorSize', 'numberOfRooms', 'numberOfBedrooms', 'numberOfBathroomsTotal', 'yearBuilt', 'petsAllowed', 'amenityFeature'],
       },
       { name: 'address', from: 'address', description: 'Address of the property.' },
       { name: 'geo', from: 'geo', description: 'Geographic coordinates of the property.' },

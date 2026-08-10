@@ -123,6 +123,61 @@ describe('profiles applied to realistic pages', () => {
     expect(await run(tools[0]!)).toMatchObject({ name: 'Falegname' });
   });
 
+  it('exposes the image of the page subject', async () => {
+    // `image` sits on 10M+ domains in Google's published usage stats, and an
+    // agent asked about a product has no way to show one without it.
+    const tools = toolsFor(`{
+      "@context":"https://schema.org","@type":"Product","name":"Zaino Trekking 45L",
+      "sku":"ZT-45-BLU","image":"https://esempio.test/zaino.jpg"}`);
+    expect(await run(tools[0]!)).toMatchObject({ image: 'https://esempio.test/zaino.jpg' });
+  });
+
+  it('exposes the image on every content profile that carries one', async () => {
+    const cases = [
+      ['Article', 'get_article'],
+      ['Recipe', 'get_recipe'],
+      ['Event', 'get_event'],
+      ['Movie', 'get_movie'],
+      ['Book', 'get_book'],
+      ['LocalBusiness', 'get_business'],
+      ['Person', 'get_person'],
+      ['Organization', 'get_organization'],
+      ['SoftwareApplication', 'get_application'],
+      ['Course', 'get_course'],
+      ['Apartment', 'get_property'],
+    ] as const;
+
+    for (const [type, toolName] of cases) {
+      const tools = toolsFor(
+        `{"@context":"https://schema.org","@type":"${type}","name":"X","image":"https://esempio.test/x.jpg"}`
+      );
+      const tool = tools.find((t) => t.name === toolName);
+      expect(tool, `${type} produced ${tools.map((t) => t.name).join(', ')}`).toBeDefined();
+      expect(await run(tool!), type).toMatchObject({ image: 'https://esempio.test/x.jpg' });
+    }
+  });
+
+  it("exposes an organization's logo", async () => {
+    const tools = toolsFor(`{
+      "@context":"https://schema.org","@type":"Organization","name":"Altavia",
+      "logo":"https://esempio.test/logo.svg"}`);
+    expect(await run(tools[0]!)).toMatchObject({ logo: 'https://esempio.test/logo.svg' });
+  });
+
+  it('inlines an ImageObject rather than spending a tool slot on it', async () => {
+    // Left out of `pick`, the images become a `list_media` tool of their own:
+    // the same data, detached from the article, one slot of the budget gone.
+    const tools = toolsFor(`{
+      "@context":"https://schema.org","@type":"Article","headline":"Titolo",
+      "image":[
+        {"@type":"ImageObject","contentUrl":"https://esempio.test/1.jpg"},
+        {"@type":"ImageObject","contentUrl":"https://esempio.test/2.jpg"}
+      ]}`);
+
+    expect(tools.map((t) => t.name)).toEqual(['get_article']);
+    expect(JSON.stringify(await run(tools[0]!))).toContain('esempio.test/2.jpg');
+  });
+
   it('pick really does leave unwanted fields out', async () => {
     const tools = toolsFor(`{
       "@context":"https://schema.org","@type":"Product","name":"Zaino",
