@@ -1,5 +1,14 @@
 # @agenticschema/server
 
+## 0.2.1
+
+### Patch Changes
+
+- Updated dependencies [49cee61]
+- Updated dependencies [44a8127]
+  - @agenticschema/core@0.2.1
+  - @agenticschema/profiles@0.2.1
+
 ## 0.2.0
 
 ### Minor Changes
