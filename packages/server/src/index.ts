@@ -1,4 +1,9 @@
-import { McpServer, fromJsonSchema } from '@modelcontextprotocol/server';
+import {
+  McpServer,
+  createMcpHandler,
+  fromJsonSchema,
+  type McpHttpHandler,
+} from '@modelcontextprotocol/server';
 import { AjvJsonSchemaValidator } from '@modelcontextprotocol/server/validators/ajv';
 import { Window } from 'happy-dom';
 import {
@@ -21,7 +26,17 @@ export interface CreateServerOptions extends PipelineOptions {
   name?: string;
   version?: string;
   fetchImpl?: typeof globalThis.fetch;
+  /**
+   * How long a client may reuse a cacheable result, in ms. Pages are fetched
+   * and mapped once at startup and never refetched, so every answer is
+   * identical for the life of the process, and the SDK's `ttlMs: 0` default
+   * makes clients refetch a list that cannot have changed. `0` restores it.
+   */
+  cacheTtlMs?: number;
 }
+
+/** Long enough to stop the per-call refetch, short enough that a restarted server is picked up soon. */
+const DEFAULT_CACHE_TTL_MS = 300_000;
 
 export interface CreatedServer {
   server: McpServer;
@@ -40,10 +55,31 @@ export async function createServer(
   sources: readonly (PageSource | string)[],
   options: CreateServerOptions = {}
 ): Promise<CreatedServer> {
-  const server = new McpServer({
-    name: options.name ?? 'agenticschema',
-    version: options.version ?? '0.0.0',
-  });
+  // The listings describe a mapping that is fixed once the pages are read, so
+  // they may be shared: the guard keeps page text out of tool descriptions,
+  // which leaves nothing in them that belongs to whoever asked. Resource reads
+  // are the page's own content and stay private — a caller can hand us `html`
+  // from somewhere we know nothing about, and authorising a shared cache over
+  // that is not ours to do.
+  const ttlMs = options.cacheTtlMs ?? DEFAULT_CACHE_TTL_MS;
+  const shared = { ttlMs, cacheScope: 'public' } as const;
+  const server = new McpServer(
+    {
+      name: options.name ?? 'agenticschema',
+      version: options.version ?? '0.0.0',
+    },
+    // Second argument. The first is the server's identity and it is echoed to
+    // every client in `_meta`, so anything put there ships on the wire.
+    {
+      cacheHints: {
+        'tools/list': shared,
+        'resources/list': shared,
+        'resources/templates/list': shared,
+        'server/discover': shared,
+        'resources/read': { ttlMs, cacheScope: 'private' },
+      },
+    }
+  );
   const validator = new AjvJsonSchemaValidator();
 
   const pages = sources.map((s) => (typeof s === 'string' ? { url: s } : s));
@@ -111,6 +147,36 @@ export async function createServer(
   }
 
   return { server, tools: allTools, diagnostics };
+}
+
+/**
+ * The same mapping behind a fetch-shaped MCP endpoint, for a Worker or any
+ * HTTP runtime. `createServer` covers the stdio path that `npx` gives you;
+ * this covers everything that speaks `Request`/`Response`.
+ *
+ * The 2026-07-28 revision is stateless, so the SDK builds a fresh server per
+ * request. The pages behind it are read once, here: refetching them per
+ * request would turn every `tools/list` into a live hit on someone else's
+ * origin, which is neither ours to spend nor theirs to absorb.
+ *
+ * This performs no authentication and no host or origin checking. Both are the
+ * caller's, and the SDK ships `hostHeaderValidationResponse` and
+ * `originValidationResponse` for exactly that.
+ */
+export async function createHttpHandler(
+  sources: readonly (PageSource | string)[],
+  options: CreateServerOptions = {}
+): Promise<McpHttpHandler> {
+  const pages = await Promise.all(
+    sources.map(async (source) => {
+      const page = typeof source === 'string' ? { url: source } : source;
+      return {
+        url: page.url,
+        html: page.html ?? (await fetchHtml(page.url, options.fetchImpl, options.timeoutMs)),
+      };
+    })
+  );
+  return createMcpHandler(async () => (await createServer(pages, options)).server);
 }
 
 const DEFAULT_TIMEOUT_MS = 15_000;

@@ -554,6 +554,8 @@ npx @agenticschema/server <url> [<url>...] [options]
 | `--max-tools <n>` | `24` | Cap on generated tools. |
 | `--no-actions` | actions on | Do not build executable tools from `potentialAction`. |
 | `--allow-host <host>` | none | Extra host allowed for actions. Repeatable. |
+| `--http` | off | Serve over HTTP instead of stdio. Binds `127.0.0.1` only. |
+| `--port <n>` | `3111` | Port for `--http`. |
 | `--quiet` | off | Keep diagnostics off stderr. |
 | `-h`, `--help` | — | Print usage and exit. |
 
@@ -570,6 +572,43 @@ const { server, tools, diagnostics } = await createServer(
   { maxTools: 12, actions: 'off', allowedHosts: [] }
 );
 ```
+
+### Over HTTP
+
+`createHttpHandler()` returns the same mapping behind a `fetch`, for a Worker or any runtime
+that speaks `Request`/`Response`:
+
+```js
+import { createHttpHandler } from '@agenticschema/server';
+
+const handler = await createHttpHandler(['https://example.test/product']);
+
+export default { fetch: (request) => handler.fetch(request) };
+```
+
+The 2026-07-28 revision is stateless, so the SDK builds a fresh server per request. The pages
+are read once, when the handler is created — refetching them per request would turn every
+`tools/list` into a live hit on someone else's origin.
+
+**It performs no authentication and no host or origin checking.** On a Worker that is the
+platform's job; the `--http` CLI path applies the SDK's `hostHeaderValidationResponse` and
+`originValidationResponse` against loopback allowlists, because a local port is reachable from
+whatever page the browser happens to be on and DNS rebinding is a live risk there rather than a
+theoretical one.
+
+### Cache hints
+
+Results of `tools/list`, `resources/list` and `resources/read` carry the `ttlMs` / `cacheScope`
+fields the 2026-07-28 revision requires. Without them the SDK emits the most pessimistic pair it
+can — `ttlMs: 0`, `cacheScope: 'private'` — which tells every client to refetch a listing that
+cannot have changed: pages are read once at startup and never refetched.
+
+| Result | Default | Why |
+| --- | --- | --- |
+| `tools/list`, `resources/list`, `server/discover` | `300000` ms, `public` | The guard keeps page text out of tool descriptions, so nothing in a listing belongs to whoever asked, and a shared cache may hold it. |
+| `resources/read` | `300000` ms, `private` | This is the page's own content. A caller can hand us `html` from somewhere we know nothing about, so authorising a shared cache over it is not ours to do. |
+
+`cacheTtlMs` changes the lifetime; `0` restores the SDK default.
 
 ---
 
@@ -759,7 +798,7 @@ Listed rather than hidden, because finding them yourself costs more than reading
 | `@agenticschema/core` | The pipeline. No MCP, no DOM assumptions. Zero runtime dependencies. |
 | `@agenticschema/profiles` | ~20 hand-written type profiles + the Schema.org hierarchy. |
 | `@agenticschema/browser` | WebMCP adapter. Script-tag build is one self-contained file, 27 KB gzip, polyfill included. |
-| `@agenticschema/server` | MCP server over stdio or Streamable HTTP. |
+| `@agenticschema/server` | MCP server over stdio, plus a fetch-shaped HTTP handler for Workers and other HTTP runtimes. Speaks the 2026-07-28 revision. |
 
 Third-party pieces this works with, both from the `@mcp-b` project: `@mcp-b/webmcp-polyfill`
 (a dependency of the browser adapter) and `@mcp-b/webmcp-local-relay` (the optional transport).
