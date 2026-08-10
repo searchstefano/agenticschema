@@ -79,7 +79,7 @@ export function mapToTools(graph: EntityGraph, options: MapOptions = {}): MapRes
   for (const id of ordered) {
     if (id === primaryId || consumed.has(id)) continue;
     const entity = graph.nodes.get(id);
-    if (!entity || isMachinery(entity)) continue;
+    if (!entity || isMachinery(entity) || isChrome(entity)) continue;
     const slug = profiles.get(id)?.slug ?? 'thing';
     groups.set(slug, [...(groups.get(slug) ?? []), id]);
   }
@@ -143,6 +143,39 @@ export function mapToTools(graph: EntityGraph, options: MapOptions = {}): MapRes
 function isMachinery(entity: Entity): boolean {
   return entity.types.some((type) => type === 'EntryPoint' || type.endsWith('Action'));
 }
+
+/**
+ * Page chrome: the theme describing its own layout rather than the page's
+ * subject. A `WPHeader` answers no question anyone would ask, and a CMS emits
+ * several of these on every page, each taking one of the slots the content needs.
+ *
+ * Deliberately not `BOILERPLATE_TYPES` from `select/primary.ts`, which answers a
+ * different question. `Organization` and `BreadcrumbList` make poor guesses at
+ * what a page is ABOUT while still deserving tools of their own. Nor can the
+ * hierarchy decide it: `FAQPage` and `QAPage` are `WebPage` subtypes and are
+ * entirely content. So the list is explicit, and stays that way.
+ */
+const CHROME_TYPES = new Set([
+  'WebPage',
+  'AboutPage',
+  'CollectionPage',
+  'ContactPage',
+  'ItemPage',
+  'ProfilePage',
+  'WebPageElement',
+  'WPHeader',
+  'WPFooter',
+  'WPSideBar',
+  'SiteNavigationElement',
+]);
+
+/**
+ * Every type has to be chrome. A node typed both `WebPage` and something with
+ * real content is content, and the page's own primary entity is picked before
+ * this runs, so a page carrying nothing but a wrapper still gets its one tool.
+ */
+const isChrome = (entity: Entity): boolean =>
+  entity.types.length > 0 && entity.types.every((type) => CHROME_TYPES.has(type));
 
 /** Direct match on the type first, then up the hierarchy: Vehicle to Product. */
 function resolveProfile(entity: Entity, options: MapOptions): Profile | undefined {

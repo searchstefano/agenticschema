@@ -169,6 +169,30 @@ describe('mapToTools', () => {
     const { tools } = mapToTools(graph, { profiles: [productProfile] });
     expect(tools.map((t) => t.name)).toEqual(['get_product', 'get_product_2']);
   });
+
+  it('spends no tool slots on page chrome', () => {
+    // What a CMS puts in the @graph of an ordinary article page. Only the
+    // Article is worth asking about; the rest is the theme describing itself.
+    const graph = graphOf(
+      '{"@context":"https://schema.org","@graph":[' +
+        '{"@type":"Article","headline":"Come scegliere lo zaino"},' +
+        '{"@type":"WebPage","name":"Come scegliere lo zaino"},' +
+        '{"@type":"WPHeader","cssSelector":"#masthead"},' +
+        '{"@type":"WPFooter","cssSelector":"#colophon"},' +
+        '{"@type":"WPSideBar","cssSelector":"#secondary"},' +
+        '{"@type":"SiteNavigationElement","name":"Home"},' +
+        '{"@type":"SiteNavigationElement","name":"Blog"}]}'
+    );
+    const { tools } = mapToTools(graph, {});
+    expect(tools.map((t) => t.name)).toEqual(['get_article']);
+  });
+
+  it('still exposes a page wrapper when the page has nothing else', () => {
+    // Suppressing chrome must not leave a page with no tools at all: the
+    // primary entity is chosen before the filter and never subject to it.
+    const graph = graphOf('{"@context":"https://schema.org","@type":"WebPage","name":"Chi siamo"}');
+    expect(mapToTools(graph, {}).tools.map((t) => t.name)).toEqual(['get_web_page']);
+  });
 });
 
 describe('materialize', () => {

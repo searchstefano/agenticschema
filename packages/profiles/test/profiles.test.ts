@@ -178,6 +178,23 @@ describe('profiles applied to realistic pages', () => {
     expect(JSON.stringify(await run(tools[0]!))).toContain('esempio.test/2.jpg');
   });
 
+  it('leaves a CMS page with its content rather than its theme', async () => {
+    // The @graph a WordPress SEO plugin emits on an ordinary article. Seven
+    // entities, one of which anyone would want to ask about.
+    const tools = toolsFor(`{"@context":"https://schema.org","@graph":[
+      {"@type":"Article","headline":"Come scegliere lo zaino","datePublished":"2026-01-02"},
+      {"@type":"WebPage","name":"Come scegliere lo zaino","url":"https://esempio.test/a"},
+      {"@type":"WPHeader","cssSelector":"#masthead"},
+      {"@type":"WPFooter","cssSelector":"#colophon"},
+      {"@type":"WPSideBar","cssSelector":"#secondary"},
+      {"@type":"SiteNavigationElement","name":"Home","url":"https://esempio.test/"},
+      {"@type":"SiteNavigationElement","name":"Blog","url":"https://esempio.test/blog"}
+    ]}`);
+
+    expect(tools.map((t) => t.name)).toEqual(['get_article']);
+    expect(await run(tools[0]!)).toMatchObject({ headline: 'Come scegliere lo zaino' });
+  });
+
   it('pick really does leave unwanted fields out', async () => {
     const tools = toolsFor(`{
       "@context":"https://schema.org","@type":"Product","name":"Zaino",
