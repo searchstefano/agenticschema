@@ -1,5 +1,55 @@
 # @agenticschema/browser
 
+## 0.2.0
+
+### Minor Changes
+
+- 54164e7: Build the script-tag bundle as an IIFE, so it works through a tag manager.
+
+  Google Tag Manager and Cloudflare Zaraz inject a plain `<script src>` and never set
+  `type="module"`. The CDN build was ESM, so loading it that way was a syntax error before a line
+  of it ran — `Unexpected token 'export'` — and setting `type="module"` by hand is not something a
+  tag manager's UI generally lets you do. Between the two there was no way to ship the adapter
+  through the tooling most sites actually use to add a script.
+
+  The bundle at `unpkg`/`jsdelivr` (`dist/cdn/auto.js`) is now an IIFE under the global
+  `agenticschema`. It is valid both with and without `type="module"`, so every tag already in the
+  wild keeps working, and the README snippet drops the attribute. The npm builds are untouched and
+  still ESM: `import { start } from '@agenticschema/browser'` is unaffected.
+
+  Dropping `type="module"` also brings back `document.currentScript`, which a classic script has
+  even when a tag manager inserted it. So `data-*` options are read straight off the tag, without
+  depending on the marker or on the filename — which matters, since tag managers often serve
+  third-party scripts from their own proxy under a name with no `agenticschema` in it.
+
+  The size check gained a third promise to go with the other two: the built entry has to compile
+  as a classic script. This shipped because nothing asserted it, and the failure is invisible from
+  the TypeScript.
+
+  **Breaking, narrowly:** importing the CDN URL as an ES module —
+  `import { ready } from 'https://cdn.jsdelivr.net/npm/@agenticschema/browser/dist/cdn/auto.js'` —
+  no longer works. Read `window.agenticschema.ready` instead, or import from the npm package. The
+  bundled demo page did exactly that and has been updated.
+
+### Patch Changes
+
+- fa1c56c: Fix the script-tag build ignoring every `data-*` option on the snippet the README gives.
+
+  The auto entry located its own tag through `document.currentScript`, falling back to
+  `script[data-agenticschema]`. But `document.currentScript` is `null` inside a module script —
+  the HTML spec requires it — and the documented snippet is `type="module"`. So the fallback was
+  the only path that ever ran on a real page, and it needed a marker attribute the README never
+  mentioned. Anyone setting `data-max-tools`, `data-actions`, `data-watch` or `data-allow-hosts`
+  on the plain snippet got defaults instead, silently: the page kept working, registered tools
+  under a configuration nobody asked for, and said nothing. Measured on a page with three JSON-LD
+  blocks, `data-max-tools="2"` produced 5 tools.
+
+  The tag is now also matched by `script[src*="agenticschema"]`, which the CDN snippet satisfies,
+  so the plain copy-paste is configurable. `data-agenticschema` still works and is still the way
+  to configure a self-hosted build whose filename the selector cannot guess.
+
+  No test covered the script-tag entry at all, which is how this shipped. There is one now.
+
 ## 0.1.2
 
 ### Patch Changes

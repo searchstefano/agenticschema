@@ -1,6 +1,6 @@
 {
   "name": "@agenticschema/server",
-  "version": "0.1.1",
+  "version": "0.2.0",
   "type": "module",
   "description": "Serve the Schema.org markup of any URL as an MCP server over stdio or HTTP.",
   "license": "MIT",
