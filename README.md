@@ -15,7 +15,7 @@ Protocol tools — no new API to write, no backend to run.
                           ┌───────────────────┴───────────────────┐
                           ▼                                       ▼
              @agenticschema/browser                   @agenticschema/server
-             document.modelContext                    stdio / Streamable HTTP
+             document.modelContext                    stdio / fetch handler
              (script tag, WebMCP)                     (works with any MCP client today)
 ```
 
@@ -93,8 +93,7 @@ Claude Desktop, Cursor or Claude Code.
 
 ```html
 <!-- ① registration: read this page's Schema.org markup, publish it as WebMCP tools -->
-<script type="module" data-agenticschema
-        src="https://cdn.jsdelivr.net/npm/@agenticschema/browser@0.1.2"></script>
+<script src="https://cdn.jsdelivr.net/npm/@agenticschema/browser@0.2.0"></script>
 
 <!-- ② transport (development only): bridge those tools to a local MCP relay -->
 <script src="https://cdn.jsdelivr.net/npm/@mcp-b/webmcp-local-relay@4/dist/browser/embed.js"></script>
@@ -120,13 +119,14 @@ Four things worth knowing before you paste that in:
 
 - **Order matters.** The relay embed reads whatever is already registered and subscribes to
   changes, so put it after the registration tag.
-- **Self-hosting the bundle under a different filename?** Add `data-agenticschema` to the tag,
-  or its `data-*` options are silently ignored — see
-  [below](#how-the-adapter-finds-its-own-tag).
+- **No `type="module"`.** The script-tag build is an IIFE, so it runs as an ordinary script —
+  which is what makes it work through a tag manager. Adding `type="module"` still works, but it
+  costs you `document.currentScript` and with it the simplest way to read options; see
+  [How the adapter finds its own tag](#how-the-adapter-finds-its-own-tag).
 - **Tag ② is for development.** Shipping it to real visitors makes every one of their browsers
   probe `127.0.0.1` — see [Keep the relay out of production](#keep-the-relay-out-of-production).
 - **Pin your versions.** Unversioned jsDelivr URLs are cached at the edge for days, long enough
-  to keep serving a build you have already replaced. `@0.1.2` and `@4` above are pins.
+  to keep serving a build you have already replaced. `@0.2.0` and `@4` above are pins.
 
 If you only want the browser's own built-in agent to use the tools, you need tag ① alone.
 
@@ -186,38 +186,59 @@ See [Quick start](#quick-start--copy-and-paste) above, then
 
 ### How the adapter finds its own tag
 
-To read its `data-*` options the adapter first has to find the tag it was loaded from. In a
-**module** script `document.currentScript` is `null` — that is what the HTML specification
-requires, not a quirk of your browser — and the snippet everyone pastes is a module script. So
-it falls back to searching the document, in this order:
+To read its `data-*` options the adapter first has to find the tag it was loaded from. It tries
+three things, in order:
 
-1. `script[data-agenticschema]` — an explicit marker,
-2. `script[src*="agenticschema"]` — the src of the standard snippet.
+1. `document.currentScript` — set while a **classic** script runs, including one a tag manager
+   inserted, and `null` in a module script because the HTML specification says so,
+2. `script[data-agenticschema]` — an explicit marker,
+3. `script[src*="agenticschema"]` — the src of the standard snippet.
 
-The CDN tag matches rule 2, so the plain snippet is configurable with no marker:
+Since the build is an IIFE, the plain snippet takes rule 1 and everything works with no marker,
+whatever the file is called and however it got onto the page:
 
 ```html
-<!-- options are read: the src identifies the tag -->
-<script type="module" data-max-tools="8"
-        src="https://cdn.jsdelivr.net/npm/@agenticschema/browser@0.1.2"></script>
+<script data-max-tools="8"
+        src="https://cdn.jsdelivr.net/npm/@agenticschema/browser@0.2.0"></script>
 ```
 
-**Self-hosting under a different filename matches neither rule.** Add the marker there:
+**Adding `type="module"` gives up rule 1.** The tag then has to be identifiable some other way:
+the URL above still matches rule 3, but a self-hosted copy under an unrelated filename matches
+nothing, and its options are ignored in silence.
 
 ```html
-<!-- nothing in this src says "agenticschema" -->
+<!-- module script, and nothing in the src says "agenticschema": rule 2 or nothing -->
 <script type="module" data-agenticschema data-max-tools="8"
         src="/assets/webmcp-bundle.js"></script>
 ```
 
-> **Using 0.1.2 or earlier?** Rule 2 did not exist, so `data-agenticschema` was mandatory for
-> *any* option to have an effect — and its absence was silent. Measured on one page with three
-> JSON-LD blocks, `data-max-tools="2"` without the marker produced 5 tools instead of 2. If you
-> are pinned to an old version, keep the marker.
+> **Using 0.1.2 or earlier?** That build was ESM, so the tag needed `type="module"`, rule 1
+> never applied and rule 3 did not exist — `data-agenticschema` was mandatory for *any* option
+> to have an effect, and its absence was silent. Measured on one page with three JSON-LD blocks,
+> `data-max-tools="2"` without the marker produced 5 tools instead of 2.
 
 When an option is ignored nothing warns you: the page keeps working and quietly uses defaults,
-which is indistinguishable from success until you go counting tools. If you are unsure, adding
-the marker is always safe.
+which is indistinguishable from success until you go counting tools.
+
+### Through a tag manager
+
+Google Tag Manager and Cloudflare Zaraz inject a plain `<script src>` and never set
+`type="module"`. That is why the script-tag build is an IIFE: an ESM bundle loaded that way is a
+syntax error before a line of it runs, and what the tag manager reports back is unhelpful.
+
+Use a Custom HTML tag containing the snippet from
+[Quick start](#quick-start--copy-and-paste), unchanged. Options work too: a dynamically inserted
+classic script still has `document.currentScript`, so `data-*` attributes are read even when the
+tag manager serves the file from its own proxy under a name with no `agenticschema` in it.
+
+Two things to watch:
+
+- **Fire it on every page, as early as possible.** The adapter maps the markup it finds and then
+  watches for changes, so firing late only delays the first registration — but a trigger scoped
+  to one page leaves the rest of the site with no tools.
+- **Do not put the relay embed in a tag manager.** Tag managers run in production by definition,
+  and that tag has no business on a real visitor's browser — see
+  [Keep the relay out of production](#keep-the-relay-out-of-production).
 
 ### Every attribute
 
@@ -225,7 +246,7 @@ All options are optional. With none of them set you get every default in the rig
 
 | Attribute | Values | Default | What it does |
 | --- | --- | --- | --- |
-| `data-agenticschema` | present / absent | absent | Marks the tag so the adapter can find it. Needed only when the script's `src` does not contain `agenticschema` — a self-hosted build under another filename. Always required in 0.1.2 and earlier. |
+| `data-agenticschema` | present / absent | absent | Marks the tag so the adapter can find it. Needed only when `document.currentScript` is unavailable *and* the `src` does not contain `agenticschema` — that is, a module script loading a self-hosted build under another filename. Always required in 0.1.2 and earlier. |
 | `data-actions` | `off` | actions generated | Turns off executable tools entirely. Read tools are unaffected. Use this if you publish a `SearchAction` you would rather agents did not call. |
 | `data-max-tools` | integer > 0 | `24` | Ceiling on generated tools. Agents degrade as a toolset grows; a page listing 200 products has no business producing 200 tools. Values that are not a finite number above zero are ignored. |
 | `data-watch` | `off` | watching on | Stops the adapter following DOM changes and History API navigations. Turn it off on a static page to save a `MutationObserver`. |
@@ -240,7 +261,7 @@ A page that uses all of them:
         data-max-tools="8"
         data-watch="off"
         data-allow-hosts="api.example.com, search.example.com"
-        src="https://cdn.jsdelivr.net/npm/@agenticschema/browser@0.1.2"></script>
+        src="https://cdn.jsdelivr.net/npm/@agenticschema/browser@0.2.0"></script>
 ```
 
 Anything not on this list — profiles, payload caps, custom tools, timeouts — is reachable only
@@ -759,7 +780,7 @@ does not cover.
 | --- | --- | --- |
 | Tools visible in DevTools → Application, but the MCP client shows **0 sources** | Registration done, transport missing | Add the relay embed tag — [Choosing a transport](#choosing-a-transport) |
 | `webmcp_list_sources` returns `count: 0` | The page never opened the WebSocket | Confirm `embed.js` is in the page *and* the relay process is running |
-| A `data-*` option has no effect | The adapter cannot identify its own tag: a self-hosted `src` without `agenticschema` in it, or version 0.1.2 or earlier | Add `data-agenticschema` — [How the adapter finds its own tag](#how-the-adapter-finds-its-own-tag) |
+| A `data-*` option has no effect | The adapter cannot identify its own tag: `type="module"` on a self-hosted `src` without `agenticschema` in it, or version 0.1.2 or earlier | Drop `type="module"`, or add `data-agenticschema` — [How the adapter finds its own tag](#how-the-adapter-finds-its-own-tag) |
 | No tools at all, no errors | Version 0.1.1 or earlier on a browser without native WebMCP | Upgrade to `@0.1.2` or later |
 | The script tag never runs | CSP blocks `cdn.jsdelivr.net` | Allow it in `script-src`, or self-host `dist/cdn/auto.js` |
 | Tools appear with generic names | The profiles chunk failed to load | Check the console for the warning; check CSP and network |

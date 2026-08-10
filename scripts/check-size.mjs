@@ -15,6 +15,7 @@
  *    registered, which is the whole directory: the profiles are needed on every
  *    single mapping, so splitting them out never deferred anything.
  */
+import { Script } from 'node:vm';
 import { gzipSync } from 'node:zlib';
 import { readFileSync, existsSync, readdirSync } from 'node:fs';
 import { basename, join } from 'node:path';
@@ -105,7 +106,27 @@ if (problems.length > 0) {
 }
 
 // ---------------------------------------------------------------------------
-// 2. Size budget
+// 2. It has to run as a classic script
+// ---------------------------------------------------------------------------
+//
+// Tag managers — Zaraz, Google Tag Manager — inject a plain <script> and do not
+// set type="module". An ESM bundle dropped in that way is a syntax error before
+// a line of it runs, and the tag manager reports nothing useful. Compiling it
+// here is the same parse a browser does for a classic script.
+
+try {
+  new Script(readFileSync(ENTRY, 'utf8'), { filename: ENTRY });
+} catch (err) {
+  console.error(
+    `${ENTRY} does not parse as a classic script: ${err.message}\n\n` +
+      `  A tag manager injects <script src=...> without type="module", so the build has to\n` +
+      `  run without one. Build the CDN entry as iife.\n`
+  );
+  process.exit(1);
+}
+
+// ---------------------------------------------------------------------------
+// 3. Size budget
 // ---------------------------------------------------------------------------
 
 const gzip = (file) => gzipSync(readFileSync(file)).length;
