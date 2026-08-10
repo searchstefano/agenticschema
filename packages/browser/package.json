@@ -1,6 +1,6 @@
 {
   "name": "@agenticschema/browser",
-  "version": "0.1.2",
+  "version": "0.2.0",
   "type": "module",
   "description": "Expose a page Schema.org markup as WebMCP tools, with a single script tag.",
   "license": "MIT",
