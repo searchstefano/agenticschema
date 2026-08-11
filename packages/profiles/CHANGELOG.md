@@ -1,5 +1,13 @@
 # @agenticschema/profiles
 
+## 0.2.3
+
+### Patch Changes
+
+- Updated dependencies [682de47]
+- Updated dependencies [e76ced9]
+  - @agenticschema/core@0.2.3
+
 ## 0.2.2
 
 ### Patch Changes
