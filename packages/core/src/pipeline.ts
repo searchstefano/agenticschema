@@ -1,6 +1,6 @@
 import { extract, type ExtractOptions } from './extract/index.js';
 import { normalize, type NormalizeOptions } from './normalize/index.js';
-import { mapToTools, type MapOptions } from './map/index.js';
+import { DEFAULT_MAX_TOOLS, mapToTools, type MapOptions } from './map/index.js';
 import { mapActions, type ActionOptions } from './map/actions.js';
 import { guardTools, type GuardOptions } from './guard/index.js';
 import type { Diagnostic, EntityGraph, JsonSchemaObject, ToolDescriptor, ToolResult } from './types.js';
@@ -54,7 +54,16 @@ export function toTools(source: Document | string, options: PipelineOptions = {}
   const actions =
     options.actions === 'off'
       ? { tools: [], diagnostics: [] }
-      : mapActions(graph, { ...options, ...(pageOrigin ? { pageOrigin } : {}) });
+      : mapActions(graph, {
+          ...options,
+          ...(pageOrigin ? { pageOrigin } : {}),
+          // One budget for the whole toolset. The cap used to live in
+          // `mapToTools` alone, so it governed read tools and nothing else: a
+          // page listing two hundred `potentialAction`s got two hundred tools
+          // whatever `maxTools` said. Read tools spend first — what a page is
+          // about matters more than its search box — and actions take the rest.
+          maxTools: Math.max(0, (options.maxTools ?? DEFAULT_MAX_TOOLS) - read.tools.length),
+        });
 
   const custom = (options.custom ?? []).map(defineTool);
   const customNames = new Set(custom.map((t) => t.name));

@@ -32,10 +32,14 @@ These are enforced in `@agenticschema/core`, so both adapters inherit them, and 
 - **Exfiltration through `urlTemplate`.** A hostile `potentialAction` could point at another
   host and receive the parameters. Destinations must be same-origin (or explicitly allow-listed),
   http/https only, RFC 6570 level 1 only, and are re-validated **after** template expansion so a
-  crafted parameter value cannot move the target.
+  crafted parameter value cannot move the target. Redirects are refused rather than followed: a
+  3xx from the validated origin would otherwise land anywhere it liked, past both checks. A site
+  that needs the hop can declare the tool with `defineTool`.
 - **Side-effecting actions.** Only idempotent action types with `GET` (or no) `httpMethod` become
   executable tools. `OrderAction`, `ReserveAction`, anything `POST` — skipped, with a diagnostic.
-- **Context flooding.** Caps on tool count (default 24) and on returned payload size.
+- **Context flooding.** Caps on tool count (default 24) and on returned payload size. Read tools
+  and action tools share the one budget, so a page cannot get past it by publishing its flood as
+  `potentialAction` instead of as entities.
 
 ## What it explicitly does NOT defend against
 

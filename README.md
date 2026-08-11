@@ -779,11 +779,13 @@ closed in `core`, so every adapter inherits them:
   (one word, letters and digits, 40 characters at most) and becomes `Thing` where it is not.
 - **Exfiltration via `urlTemplate`.** A hostile action could point elsewhere and receive the
   parameters. Destinations are same-origin by default, https-only, RFC 6570 level 1 only, and
-  re-validated **after** template expansion so a crafted value cannot move the target.
+  re-validated **after** template expansion so a crafted value cannot move the target. Redirects
+  are refused rather than followed, since a 3xx would land past both checks.
 
-Plus a cap on tool count (default 24) and on payload size, because agents degrade badly with
-large or bloated toolsets. Secondary entities of the same type collapse into a single tool —
-nine indistinguishable `get_person` tools are useless to an agent; one `list_person` is not.
+Plus a cap on tool count (default 24, read and action tools sharing the one budget) and on
+payload size, because agents degrade badly with large or bloated toolsets. Secondary entities of
+the same type collapse into a single tool — nine indistinguishable `get_person` tools are useless
+to an agent; one `list_person` is not.
 
 Two things that are **your** decision, not the library's:
 

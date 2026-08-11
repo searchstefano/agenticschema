@@ -31,7 +31,8 @@ export interface MapResult {
   diagnostics: Diagnostic[];
 }
 
-const DEFAULT_MAX_TOOLS = 24;
+/** Shared with `mapActions`: one budget covers the whole toolset, not the reads alone. */
+export const DEFAULT_MAX_TOOLS = 24;
 
 /** Turns the graph into read-tool descriptors. Nothing here has side effects. */
 export function mapToTools(graph: EntityGraph, options: MapOptions = {}): MapResult {

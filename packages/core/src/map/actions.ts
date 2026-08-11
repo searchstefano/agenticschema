@@ -1,3 +1,4 @@
+import { DEFAULT_MAX_TOOLS } from './index.js';
 import { toSlug, typeLabel } from './profile.js';
 import {
   isRef,
@@ -35,6 +36,12 @@ export interface ActionOptions {
    * that never answers at all, leaves the agent waiting indefinitely.
    */
   timeoutMs?: number;
+  /**
+   * Ceiling on how many action tools to generate, the same budget `mapToTools`
+   * spends on read tools. The pipeline hands over whatever the read tools left,
+   * so the cap covers the toolset an agent actually sees rather than half of it.
+   */
+  maxTools?: number;
 }
 
 const DEFAULT_TIMEOUT_MS = 10_000;
@@ -46,9 +53,11 @@ export interface ActionResult {
 
 /** From `potentialAction` to an executable tool, with the safety rules applied here rather than downstream. */
 export function mapActions(graph: EntityGraph, options: ActionOptions = {}): ActionResult {
+  const maxTools = options.maxTools ?? DEFAULT_MAX_TOOLS;
   const diagnostics: Diagnostic[] = [];
   const tools: ToolDescriptor[] = [];
   const used = new Set<string>();
+  let capped = false;
 
   const skip = (type: string, reason: string): void => {
     // Never silently: whoever is integrating has to be able to find out why
@@ -61,7 +70,14 @@ export function mapActions(graph: EntityGraph, options: ActionOptions = {}): Act
   };
 
   for (const entity of graph.nodes.values()) {
+    if (capped) break;
     for (const value of entity.props['potentialAction'] ?? []) {
+      // Before any work, not after: vetting a destination parses a URL, and a
+      // page is free to list `potentialAction` as many times as it likes.
+      if (tools.length >= maxTools) {
+        capped = true;
+        break;
+      }
       if (!isRef(value)) continue;
       const action = graph.nodes.get(value.ref);
       if (!action) continue;
@@ -127,6 +143,16 @@ export function mapActions(graph: EntityGraph, options: ActionOptions = {}): Act
     }
   }
 
+  if (capped) {
+    // No number in the message: what arrives here is the budget the read tools
+    // left over, and quoting that as "the cap" would name the wrong figure.
+    diagnostics.push({
+      level: 'warn',
+      code: 'tool-limit',
+      message: 'reached the tool cap: remaining actions were not exposed',
+    });
+  }
+
   return { tools, diagnostics };
 }
 
@@ -176,6 +202,15 @@ function buildActionTool(args: {
         const response = await doFetch(check.url, {
           headers: { accept: 'application/json, text/html' },
           signal: AbortSignal.timeout(timeoutMs),
+          // The destination is vetted twice, and `fetch` follows redirects by
+          // default, which walks past both checks: a 3xx from the page's own
+          // origin lands anywhere it likes. On the server that is a request onto
+          // the host's network — link-local metadata included — and in the
+          // browser it is the same request leaving with the user's cookies.
+          // Rejecting beats following manually: the browser hands back an opaque
+          // response for a redirect, so there is no `Location` to re-vet there,
+          // and a site that needs the hop can declare the tool with `defineTool`.
+          redirect: 'error',
         });
         return { content: [{ type: 'text', text: await response.text() }] };
       } catch (err) {

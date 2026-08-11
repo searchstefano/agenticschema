@@ -103,6 +103,43 @@ describe('actions: what becomes a tool and what does not', () => {
     expect(diagnostics.some((d) => /scheme, host or port/.test(d.message))).toBe(true);
   });
 
+  it('does not let the platform follow a redirect past the origin check', async () => {
+    const fetchImpl = vi.fn(async (_url: string | URL, _init?: RequestInit) => new Response('ok'));
+    const { tools } = toTools(searchPage(`${ORIGIN}/cerca?q={search_term_string}`), {
+      ...opts,
+      fetchImpl: fetchImpl as unknown as typeof fetch,
+    });
+    const search = tools.find((t) => t.source.kind === 'action')!;
+
+    await run(search, { search_term_string: 'zaino' });
+    // Same-origin is checked before the request and again after expansion, and a
+    // followed 3xx walks straight past both. On the server that is SSRF onto the
+    // host's own network; in the browser it is the request leaving with the
+    // user's cookies. `fetch` follows by default, so it has to be said.
+    expect(fetchImpl.mock.calls[0]![1]!.redirect).toBe('error');
+  });
+
+  it('counts action tools against the tool cap', () => {
+    // Every one of them is same-origin, GET and idempotent, so nothing else
+    // stops them: the cap is the only thing standing between the page and 200
+    // tools in the agent's context.
+    const actions = Array.from(
+      { length: 200 },
+      (_, i) =>
+        `{"@type":"SearchAction","target":{"@type":"EntryPoint",` +
+        `"urlTemplate":"${ORIGIN}/cerca${i}?q={q}"},"query-input":"required name=q"}`
+    ).join(',');
+
+    const { tools, diagnostics } = toTools(
+      page(`{"@context":"https://schema.org","@type":"WebSite","name":"E",
+        "potentialAction":[${actions}]}`),
+      opts
+    );
+
+    expect(tools.length).toBeLessThanOrEqual(24);
+    expect(diagnostics.some((d) => d.code === 'tool-limit')).toBe(true);
+  });
+
   it('a hostile value cannot move the destination after expansion', async () => {
     const fetchImpl = vi.fn(async () => new Response('non deve arrivare qui'));
     // A template whose parameter occupies the host: same-origin while empty,
