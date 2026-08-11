@@ -1,6 +1,6 @@
 {
   "name": "@agenticschema/server",
-  "version": "0.2.1",
+  "version": "0.2.2",
   "type": "module",
   "description": "Serve the Schema.org markup of any URL as an MCP server over stdio or HTTP.",
   "license": "MIT",
@@ -19,8 +19,8 @@
     "dist"
   ],
   "dependencies": {
-    "@agenticschema/core": "0.2.1",
-    "@agenticschema/profiles": "0.2.1",
+    "@agenticschema/core": "0.2.2",
+    "@agenticschema/profiles": "0.2.2",
     "@modelcontextprotocol/server": "^2.0.0",
     "ajv": "^8.17.1",
     "happy-dom": "^20.11.2"
