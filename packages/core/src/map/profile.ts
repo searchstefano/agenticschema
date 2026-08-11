@@ -38,14 +38,31 @@ export function genericProfile(entity: Entity): Profile {
   };
 }
 
+/**
+ * Drops leading and trailing underscores. The obvious `/^_+|_+$/g` is quadratic:
+ * `_+$` restarts inside every underscore run, so a long one costs the mapper
+ * seconds. Scanning the two ends is the same result in linear time.
+ */
+function trimUnderscores(value: string): string {
+  let start = 0;
+  let end = value.length;
+  while (start < end && value[start] === '_') start += 1;
+  while (end > start && value[end - 1] === '_') end -= 1;
+  return value.slice(start, end);
+}
+
 export const toSlug = (value: string): string =>
-  value
-    // Acronym boundary before the ordinary one, or `FAQPage` comes out as `faqpage`.
-    .replace(/([A-Z]+)([A-Z][a-z])/g, '$1_$2')
-    .replace(/([a-z0-9])([A-Z])/g, '$1_$2')
-    .toLowerCase()
-    .replace(/[^a-z0-9_]+/g, '_')
-    .replace(/^_+|_+$/g, '');
+  trimUnderscores(
+    value
+      // Acronym boundary before the ordinary one, or `FAQPage` comes out as `faqpage`.
+      // One character plus a lookahead, never `[A-Z]+`: a repeated group here
+      // backtracks quadratically over a run of capitals, and `@type` comes from
+      // the page, so the run is the attacker's to choose.
+      .replace(/([A-Z])(?=[A-Z][a-z])/g, '$1_')
+      .replace(/([a-z0-9])([A-Z])/g, '$1_$2')
+      .toLowerCase()
+      .replace(/[^a-z0-9_]+/g, '_')
+  );
 
 /**
  * Renders an entity as plain JSON, resolving references down to `depth`.

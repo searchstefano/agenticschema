@@ -5,9 +5,14 @@ on:
     branches: [main]
   pull_request:
 
+permissions: {}
+
 jobs:
   verify:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read # checkout, and nothing else: this job only reads and reports
+
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-node@v7

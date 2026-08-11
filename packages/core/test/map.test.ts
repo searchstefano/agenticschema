@@ -214,4 +214,34 @@ describe('toSlug', () => {
     expect(toSlug('LocalBusiness')).toBe('local_business');
     expect(toSlug('FAQPage')).toBe('faq_page');
   });
+
+  it('splits acronyms only where a capitalised word starts', () => {
+    expect(toSlug('XMLHttpRequest')).toBe('xml_http_request');
+    expect(toSlug('PDFViewerApp')).toBe('pdf_viewer_app');
+    expect(toSlug('ABCd')).toBe('ab_cd');
+    expect(toSlug('HTML')).toBe('html');
+    expect(toSlug('IoT')).toBe('io_t');
+  });
+
+  it('collapses separators and trims the edges, keeping inner underscores', () => {
+    expect(toSlug('  Product  ')).toBe('product');
+    expect(toSlug('Product-2')).toBe('product_2');
+    expect(toSlug('esempio.test')).toBe('esempio_test');
+    expect(toSlug('a__b')).toBe('a__b');
+    expect(toSlug('___')).toBe('');
+    expect(toSlug('')).toBe('');
+  });
+
+  // `@type` arrives from the page, so a hostile document picks this input. Both
+  // the acronym split and the edge trim used to backtrack quadratically: 50k
+  // characters took ~6s each, which is a denial of service on the mapper.
+  it('stays linear on hostile input', () => {
+    const payloads = ['A'.repeat(50_000), `a${'_'.repeat(50_000)}a`];
+
+    for (const payload of payloads) {
+      const started = performance.now();
+      toSlug(payload);
+      expect(performance.now() - started).toBeLessThan(250);
+    }
+  });
 });
