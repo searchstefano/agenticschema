@@ -26,12 +26,33 @@ export interface Profile {
 }
 
 /**
+ * A Schema.org type is one word: all 924 classes in the vocabulary match this,
+ * and the longest of them runs to 37 characters. Anything else — a space, a full
+ * stop, a paragraph — is not a type. It is prose that arrived through `@type`,
+ * and `@type` is page text exactly as `name` and `description` are.
+ *
+ * That distinction is the point. A tool's name and description are the channel
+ * an agent reads as INSTRUCTIONS; what a tool returns is DATA. `@type` is the
+ * one piece of page text that has to cross into the first channel, since it is
+ * what a tool gets named after. Holding it to the shape of a type keeps the
+ * crossing to a label: with no separators left to work with, an injected
+ * sentence cannot survive it.
+ */
+const TYPE_TOKEN = /^[A-Za-z0-9]{1,40}$/;
+
+/** The type where it is shaped like one, `Thing` where it is something else wearing the name. */
+export const typeLabel = (type: string | undefined): string =>
+  type !== undefined && TYPE_TOKEN.test(type) ? type : 'Thing';
+
+/**
  * Used when no profile covers the type, not even after walking up the hierarchy.
  * Guarantees that every entity still yields something usable.
  */
 export function genericProfile(entity: Entity): Profile {
-  const type = entity.types[0] ?? 'thing';
+  const type = typeLabel(entity.types[0]);
   return {
+    // The raw types stay here: they are data about the entity, and nothing that
+    // names or describes a tool reads them. The slug is what the mapper uses.
     types: entity.types,
     slug: toSlug(type),
     read: [{ description: `Structured data of type ${type} found on this page.` }],

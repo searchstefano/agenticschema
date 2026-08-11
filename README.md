@@ -772,9 +772,11 @@ The library takes page content and puts it into a model's context. Two attack ch
 closed in `core`, so every adapter inherits them:
 
 - **Prompt injection.** A `ld+json` block injected through UGC or a compromised CMS can carry
-  instructions. Page text never enters a tool's *description* — only its *data* — and is
-  stripped of HTML and control characters, with length caps. HTML tags go first, since they are
-  the usual way to hide instructions from a human reader but not from a model.
+  instructions. Page text never enters a tool's *name* or *description* — only its *data* — and
+  is stripped of HTML and control characters, with length caps. HTML tags go first, since they
+  are the usual way to hide instructions from a human reader but not from a model. `@type` is the
+  exception, because a tool is named after it: it is taken only where it is shaped like a type
+  (one word, letters and digits, 40 characters at most) and becomes `Thing` where it is not.
 - **Exfiltration via `urlTemplate`.** A hostile action could point elsewhere and receive the
   parameters. Destinations are same-origin by default, https-only, RFC 6570 level 1 only, and
   re-validated **after** template expansion so a crafted value cannot move the target.

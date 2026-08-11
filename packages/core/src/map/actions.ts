@@ -1,4 +1,4 @@
-import { toSlug } from './profile.js';
+import { toSlug, typeLabel } from './profile.js';
 import {
   isRef,
   type Diagnostic,
@@ -113,8 +113,11 @@ export function mapActions(graph: EntityGraph, options: ActionOptions = {}): Act
       }
 
       const required = requiredParam(action);
+      // The host entity's `@type` comes off the page, and a name is instructions
+      // on a smaller channel than a description. Through `typeLabel` so a
+      // sentence parked in `@type` cannot become one.
       const name = uniqueName(
-        `${VERB_BY_TYPE[type] ?? 'run'}_${toSlug(entity.types[0] ?? 'site')}`,
+        `${VERB_BY_TYPE[type] ?? 'run'}_${toSlug(typeLabel(entity.types[0] ?? 'Site'))}`,
         used
       );
 

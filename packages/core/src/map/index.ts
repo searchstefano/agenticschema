@@ -249,7 +249,13 @@ function buildGroupTool(
 
   return {
     name,
-    description: `All ${entities.length} ${type} entries on this page. ${spec.description}`,
+    // The slug, not the entity's `@type`. A registered profile's slug is written
+    // by whoever registered it, and the generic one is a type token and nothing
+    // else, so this description is built from vetted material end to end.
+    // Interpolating `@type` put page prose into a description — the channel an
+    // agent reads as instructions — while the same prose was being kept out of
+    // every other description on the page.
+    description: `All ${entities.length} ${profile.slug} entries on this page. ${spec.description}`,
     inputSchema: { type: 'object', properties: {}, additionalProperties: false },
     annotations: { readOnlyHint: true, openWorldHint: false },
     execute: () => ({

@@ -7,7 +7,10 @@ import type { Diagnostic, ToolDescriptor } from '../types.js';
  *  1. Prompt injection. An `ld+json` block injected through user content or a
  *     compromised CMS can carry instructions aimed at the agent. The defence:
  *     page text never reaches a tool's INSTRUCTIONS, only the DATA it returns,
- *     and that data gets cleaned and capped.
+ *     and that data gets cleaned and capped. What this file cannot do is tell
+ *     an instruction from a sentence — it filters markup, not meaning — so text
+ *     that names or describes a tool has to be vetted where it is chosen, and
+ *     `typeLabel` in `map/profile.ts` is where `@type` meets that bar.
  *  2. Oversized payloads. A page with thousands of entities can swamp an
  *     agent's context. The defence: a ceiling on the bytes handed back.
  */

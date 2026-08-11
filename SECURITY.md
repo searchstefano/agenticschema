@@ -23,8 +23,12 @@ These are enforced in `@agenticschema/core`, so both adapters inherit them, and 
 
 - **Prompt injection through page text.** Markup injected via user-generated content or a
   compromised CMS can carry instructions aimed at the agent. Page text never enters a tool's
-  *description* — only the *data* a tool returns — and is stripped of HTML tags and control
-  characters, with per-field length caps.
+  *name* or *description* — only the *data* a tool returns, which is stripped of HTML tags and
+  control characters and capped per field. The one exception is `@type`, which cannot be kept
+  out: it is what a tool gets named after. So it is accepted only where it is shaped like a type
+  — one word, letters and digits, 40 characters at most, which every class in the vocabulary fits
+  — and becomes `Thing` where it is not. A sentence parked in `@type` has no separators left to
+  survive that, which is what keeps prose out of the channel an agent reads as instructions.
 - **Exfiltration through `urlTemplate`.** A hostile `potentialAction` could point at another
   host and receive the parameters. Destinations must be same-origin (or explicitly allow-listed),
   http/https only, RFC 6570 level 1 only, and are re-validated **after** template expansion so a
