@@ -1,79 +1,85 @@
-# AgenticSchema &middot; [![GitHub license](https://img.shields.io/badge/license-MIT-blue.svg)](https://github.com/searchstefano/agenticschema/blob/main/LICENSE) [![npm version](https://img.shields.io/npm/v/@agenticschema/core.svg?style=flat)](https://www.npmjs.com/package/@agenticschema/core) [![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](https://github.com/searchstefano/agenticschema/blob/main/CONTRIBUTING.md)
+# AgenticSchema &middot; [GitHub license](https://github.com/searchstefano/agenticschema/blob/main/LICENSE) [npm version](https://www.npmjs.com/package/@agenticschema/core) [PRs Welcome](https://github.com/searchstefano/agenticschema/blob/main/CONTRIBUTING.md)
 
 Turn the Schema.org markup a page already has into MCP tools an AI agent can call.
 
 Most pages already publish structured data. Agents still scrape them. This library closes that
 gap: it reads the `JSON-LD`, microdata and RDFa already in the page and emits Model Context
-Protocol tools — no new API to write, no backend to run.
+Protocol tools. You write no new API and you run no backend.
 
 ```
-                    ┌──────────────── @agenticschema/core ─────────────────┐
- Document │ HTML    │                                                      │
- │ JSON-LD ───────► │  extract ──► normalize ──► select ──► map ──► guard  │ ──► ToolDescriptor[]
-                    └──────────────────────────────────────────────────────┘
-                                              │
-                          ┌───────────────────┴───────────────────┐
-                          ▼                                       ▼
-             @agenticschema/browser                   @agenticschema/server
-             document.modelContext                    stdio / fetch handler
-             (script tag, WebMCP)                     (works with any MCP client today)
+              Website
+                 │
+                 │  the Schema.org markup it already publishes:
+                 │  JSON-LD · microdata · RDFa
+                 ▼
+           AgenticSchema
+                 │
+                 │  one callable tool per thing the page describes
+                 │
+           ┌─────┴─────┐
+           ▼           ▼
+        WebMCP        MCP
+       (browser)    (Node)
+           └─────┬─────┘
+                 ▼
+               Agent
 ```
 
-**That first sentence is measurable, not a pitch.** schema.org publishes the usage statistics from
-Google's crawl — how many domains use each term:
+Here is what comes out of a page that exists today:
 
-| Term | Domains |
-| --- | --- |
-| `potentialAction` | 10M+ |
-| `SearchAction` | 10M+ |
-| `EntryPoint` | 10M+ |
-| `urlTemplate` | 10M+ |
-| `query-input` | 10M+ |
+```
+world.openfoodfacts.org/product/3017620422003
 
-Over ten million domains already declare how to search them, machine-readably, today. That is a
-capability this library hands to an agent as a callable tool, and nobody had to publish anything new
-for it to work. The vocabulary's tail is shorter than it looks, too: of 958 types, 16 appear on 10M+
-domains, 50 on 1M+ and 95 on 100K+ — so a hand-written profile registry can cover the part of the
-web that exists in practice.
+  read    get_web_site
+  read    get_organization
+  read    get_search_action
+  action  search_web_site(search_term_string)
+```
 
-One caveat worth stating plainly: those counts are what sites **declare**, not what is well formed
-enough to map. That is a different number, and the table does not claim it. Source:
-[schemaorg/schemaorg `data/public_stats/google`](https://github.com/schemaorg/schemaorg/tree/main/data/public_stats/google),
-2026-07.
+`search_web_site` is executable. An agent holding it queries Open Food Facts directly instead of
+guessing a URL or going through a search engine. Nobody published anything new to make that
+happen: the page has carried a `SearchAction` all along, and even the parameter name is the one
+the page itself declares in `query-input`.
 
----
+Run that page yourself. No browser, and no transport to configure:
+
+```bash
+npx @agenticschema/server https://world.openfoodfacts.org/product/3017620422003
+```
+
+(`get_search_action` in that list is noise, a read tool over the action's own definition. It is a
+[known rough edge](#known-rough-edges), left visible rather than trimmed out of the example.)
+
+On your own site it is one file. The script-tag build is a plain classic script with the WebMCP
+polyfill already inside, roughly 27 KB gzipped, so it goes wherever a `<script>` tag goes: a
+WordPress theme, a Shopify theme, a React, Next.js or Astro layout, or Google Tag Manager.
+
+```html
+<script src="https://cdn.jsdelivr.net/npm/@agenticschema/browser@0.2.0"></script>
+```
+
+You install no package and you configure no bundler. That tag reads the page and registers the
+tools, which is the whole of step one. Something still has to carry them to an agent: Chrome has
+run an origin trial for the native path since version 149, and there is a local relay for
+development. [The next section](#read-this-first-registration-is-not-transport) is about that
+choice, and it is the part people get wrong.
+
+
 
 ## Contents
 
+The six sections worth reading before anything else. GitHub's own outline menu has the rest.
+
 - [Read this first: registration is not transport](#read-this-first-registration-is-not-transport)
-- [Quick start — copy and paste](#quick-start--copy-and-paste)
-- [Try it without committing to anything](#try-it-without-committing-to-anything)
-- [The script tag, in full](#the-script-tag-in-full)
-  - [How the adapter finds its own tag](#how-the-adapter-finds-its-own-tag)
-  - [Every attribute](#every-attribute)
-  - [Content-Security-Policy](#content-security-policy)
-  - [Version pinning](#version-pinning)
-- [Choosing a transport](#choosing-a-transport)
-  - [What `embed.js` actually does](#what-embedjs-actually-does)
-  - [Keep the relay out of production](#keep-the-relay-out-of-production)
-- [The JavaScript API](#the-javascript-api)
+- [Quick start](#quick-start)
+- [Why this is worth doing at all](#why-this-is-worth-doing-at-all)
 - [The core pipeline](#the-core-pipeline)
-  - [Every pipeline option](#every-pipeline-option)
-  - [Diagnostics](#diagnostics)
-- [The Node server](#the-node-server)
-- [What it produces on real pages](#what-it-produces-on-real-pages)
-- [Three constraints that shaped the design](#three-constraints-that-shaped-the-design)
-- [Actions are deliberately restricted](#actions-are-deliberately-restricted)
-- [Custom tools](#custom-tools)
 - [Security](#security)
 - [Troubleshooting](#troubleshooting)
-- [Known rough edges](#known-rough-edges)
-- [Packages](#packages)
-- [How it compares](#how-it-compares)
-- [Development](#development)
-- [Status and disclaimer](#status-and-disclaimer)
 
 ---
+
+
 
 ## Read this first: registration is not transport
 
@@ -93,13 +99,13 @@ Getting a page's data to an agent takes **two** steps, and this library only doe
 ```
 
 `@agenticschema/browser` writes tools into `document.modelContext`. That is the whole job. It
-does **not** open a connection to anything, because a browser tab cannot listen on a port —
-see [Three constraints](#three-constraints-that-shaped-the-design).
+does **not** open a connection to anything, because a browser tab cannot listen on a port. See
+[Three constraints](#three-constraints-that-shaped-the-design).
 
 So after adding the script tag you have a page whose tools are correctly registered and that
 **no agent can reach yet**. Nothing is broken; the second half is simply not there. You pick the
-transport separately, and the choice depends on who is meant to call the tools —
-see [Choosing a transport](#choosing-a-transport).
+transport separately, and the choice depends on who is meant to call the tools. See
+[Choosing a transport](#choosing-a-transport).
 
 The symptom of forgetting step ② is very specific and worth recognising: **the tools show up in
 Chrome DevTools (Application panel) but your MCP client reports zero sources.** DevTools reads
@@ -108,7 +114,9 @@ is working, and nothing is connected.
 
 ---
 
-## Quick start — copy and paste
+
+
+## Quick start
 
 Two tags. The first registers the tools, the second carries them to a local MCP client such as
 Claude Desktop, Cursor or Claude Code.
@@ -134,25 +142,57 @@ Then run the relay and point your MCP client at it:
 }
 ```
 
-Open the page, and the tools appear in your client. Verify with `webmcp_list_sources` — your tab
+Open the page, and the tools appear in your client. Verify with `webmcp_list_sources`: your tab
 should be listed with a tool count above zero.
 
 Four things worth knowing before you paste that in:
 
-- **Order matters.** The relay embed reads whatever is already registered and subscribes to
-  changes, so put it after the registration tag.
-- **No `type="module"`.** The script-tag build is an IIFE, so it runs as an ordinary script —
-  which is what makes it work through a tag manager. Adding `type="module"` still works, but it
-  costs you `document.currentScript` and with it the simplest way to read options; see
-  [How the adapter finds its own tag](#how-the-adapter-finds-its-own-tag).
-- **Tag ② is for development.** Shipping it to real visitors makes every one of their browsers
-  probe `127.0.0.1` — see [Keep the relay out of production](#keep-the-relay-out-of-production).
-- **Pin your versions.** Unversioned jsDelivr URLs are cached at the edge for days, long enough
-  to keep serving a build you have already replaced. `@0.2.0` and `@4` above are pins.
+- Order matters. The relay embed reads whatever is already registered and subscribes to changes,
+so put it after the registration tag.
+- Leave off `type="module"`. The script-tag build is an IIFE, so it runs as an ordinary script,
+which is what makes it work through a tag manager. Adding `type="module"` still works, but it
+costs you `document.currentScript` and with it the simplest way to read options. See
+[How the adapter finds its own tag](#how-the-adapter-finds-its-own-tag).
+- Tag ② is for development. Shipping it to real visitors makes every one of their browsers probe
+`127.0.0.1`. See [Keep the relay out of production](#keep-the-relay-out-of-production).
+- Pin your versions. Unversioned jsDelivr URLs are cached at the edge for days, long enough to
+keep serving a build you have already replaced. `@0.2.0` and `@4` above are pins.
 
 If you only want the browser's own built-in agent to use the tools, you need tag ① alone.
 
 ---
+
+
+
+## Why this is worth doing at all
+
+That first sentence is measurable rather than a pitch. Schema.org publishes the usage statistics
+from Google's crawl, counting how many domains use each term:
+
+
+| Term              | Domains |
+| ----------------- | ------- |
+| `potentialAction` | 10M+    |
+| `SearchAction`    | 10M+    |
+| `EntryPoint`      | 10M+    |
+| `urlTemplate`     | 10M+    |
+| `query-input`     | 10M+    |
+
+
+Over ten million domains already declare how to search them, machine-readably, today. That is a
+capability this library hands to an agent as a callable tool, and nobody had to publish anything
+new for it to work. The vocabulary's tail is shorter than it looks, too: of 958 types, 16 appear
+on 10M+ domains, 50 on 1M+ and 95 on 100K+, so a hand-written profile registry can cover the part
+of the web that exists in practice.
+
+One caveat worth stating plainly: those counts are what sites **declare**, not what is well formed
+enough to map. That is a different number, and the table does not claim it. Source:
+[schemaorg/schemaorg](https://github.com/schemaorg/schemaorg/tree/main/data/public_stats/google) `data/public_stats/google`,
+2026-07.
+
+---
+
+
 
 ## Try it without committing to anything
 
@@ -172,7 +212,7 @@ you would ship, not a local build.
 
 ### 2. Read a real page from the terminal
 
-No browser, no transport question — the Node adapter fetches the page itself and speaks plain
+No browser, and no transport question. The Node adapter fetches the page itself and speaks plain
 MCP over stdio:
 
 ```bash
@@ -199,22 +239,49 @@ you are evaluating the library, start here.
 
 ### 3. On your own site
 
-See [Quick start](#quick-start--copy-and-paste) above, then
-[The script tag, in full](#the-script-tag-in-full).
+See [Quick start](#quick-start) above, then [The script tag, in full](#the-script-tag-in-full).
 
 ---
 
+
+
 ## The script tag, in full
+
+
+
+### Where the tag goes
+
+The build is a single classic script with no bundler and no package install behind it, so
+anywhere you can paste a `<script>` tag will do:
+
+| Platform | Where |
+| --- | --- |
+| WordPress | The theme's header template, or any plugin that inserts scripts into `<head>`. |
+| Shopify | `theme.liquid`, before the closing `</head>`. |
+| React, Next.js, Astro | The shared layout or document component, alongside your other third-party tags. |
+| Plain HTML | In `<head>`, or before `</body>`. |
+| Google Tag Manager, Cloudflare Zaraz | A Custom HTML tag. See [Through a tag manager](#through-a-tag-manager). |
+
+Put it in the layout that every page shares rather than on one page, and as early as you can. In
+a single-page app the adapter follows `history.pushState` and route changes by itself, so a
+single tag covers every route with no extra wiring.
+
+One thing can stop it outright: a Content-Security-Policy that does not allow the CDN. That is a
+one-line fix, or you can self-host the file. See
+[Content-Security-Policy](#content-security-policy).
+
+If you would rather import the package instead, it is on npm, and
+[the JavaScript API](#the-javascript-api) takes the options the attributes cannot express.
 
 ### How the adapter finds its own tag
 
 To read its `data-*` options the adapter first has to find the tag it was loaded from. It tries
 three things, in order:
 
-1. `document.currentScript` — set while a **classic** script runs, including one a tag manager
-   inserted, and `null` in a module script because the HTML specification says so,
-2. `script[data-agenticschema]` — an explicit marker,
-3. `script[src*="agenticschema"]` — the src of the standard snippet.
+1. `document.currentScript`, set while a **classic** script runs, including one a tag manager
+  inserted, and `null` in a module script because the HTML specification says so,
+2. `script[data-agenticschema]`, an explicit marker,
+3. `script[src*="agenticschema"]`, the src of the standard snippet.
 
 Since the build is an IIFE, the plain snippet takes rule 1 and everything works with no marker,
 whatever the file is called and however it got onto the page:
@@ -224,7 +291,7 @@ whatever the file is called and however it got onto the page:
         src="https://cdn.jsdelivr.net/npm/@agenticschema/browser@0.2.0"></script>
 ```
 
-**Adding `type="module"` gives up rule 1.** The tag then has to be identifiable some other way:
+**Adding** `type="module"` **gives up rule 1.** The tag then has to be identifiable some other way:
 the URL above still matches rule 3, but a self-hosted copy under an unrelated filename matches
 nothing, and its options are ignored in silence.
 
@@ -235,7 +302,7 @@ nothing, and its options are ignored in silence.
 ```
 
 > **Using 0.1.2 or earlier?** That build was ESM, so the tag needed `type="module"`, rule 1
-> never applied and rule 3 did not exist — `data-agenticschema` was mandatory for *any* option
+> never applied and rule 3 did not exist. `data-agenticschema` was mandatory for *any* option
 > to have an effect, and its absence was silent. Measured on one page with three JSON-LD blocks,
 > `data-max-tools="2"` without the marker produced 5 tools instead of 2.
 
@@ -248,31 +315,35 @@ Google Tag Manager and Cloudflare Zaraz inject a plain `<script src>` and never 
 `type="module"`. That is why the script-tag build is an IIFE: an ESM bundle loaded that way is a
 syntax error before a line of it runs, and what the tag manager reports back is unhelpful.
 
-Use a Custom HTML tag containing the snippet from
-[Quick start](#quick-start--copy-and-paste), unchanged. Options work too: a dynamically inserted
-classic script still has `document.currentScript`, so `data-*` attributes are read even when the
-tag manager serves the file from its own proxy under a name with no `agenticschema` in it.
+Use a Custom HTML tag containing the snippet from [Quick start](#quick-start), unchanged. Options
+work too: a dynamically inserted classic script still has `document.currentScript`, so `data-*`
+attributes are read even when the tag manager serves the file from its own proxy under a name
+with no `agenticschema` in it.
 
 Two things to watch:
 
-- **Fire it on every page, as early as possible.** The adapter maps the markup it finds and then
-  watches for changes, so firing late only delays the first registration — but a trigger scoped
-  to one page leaves the rest of the site with no tools.
-- **Do not put the relay embed in a tag manager.** Tag managers run in production by definition,
-  and that tag has no business on a real visitor's browser — see
-  [Keep the relay out of production](#keep-the-relay-out-of-production).
+- Fire it on every page, as early as possible. The adapter maps the markup it finds and then
+watches for changes, so firing late only delays the first registration. A trigger scoped to one
+page, though, leaves the rest of the site with no tools.
+- Keep the relay embed out of a tag manager. Tag managers run in production by definition, and
+that tag has no business on a real visitor's browser. See
+[Keep the relay out of production](#keep-the-relay-out-of-production).
+
+
 
 ### Every attribute
 
 All options are optional. With none of them set you get every default in the right-hand column.
 
-| Attribute | Values | Default | What it does |
-| --- | --- | --- | --- |
-| `data-agenticschema` | present / absent | absent | Marks the tag so the adapter can find it. Needed only when `document.currentScript` is unavailable *and* the `src` does not contain `agenticschema` — that is, a module script loading a self-hosted build under another filename. Always required in 0.1.2 and earlier. |
-| `data-actions` | `off` | actions generated | Turns off executable tools entirely. Read tools are unaffected. Use this if you publish a `SearchAction` you would rather agents did not call. |
-| `data-max-tools` | integer > 0 | `24` | Ceiling on generated tools. Agents degrade as a toolset grows; a page listing 200 products has no business producing 200 tools. Values that are not a finite number above zero are ignored. |
-| `data-watch` | `off` | watching on | Stops the adapter following DOM changes and History API navigations. Turn it off on a static page to save a `MutationObserver`. |
-| `data-allow-hosts` | comma-separated hosts | page origin only | Extra hosts an action's destination may point at, beyond the page's own origin. Whitespace around each entry is trimmed. Widening this deliberately widens the exfiltration surface — read [Security](#security) first. |
+
+| Attribute            | Values                | Default           | What it does                                                                                                                                                                                                                                                            |
+| -------------------- | --------------------- | ----------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `data-agenticschema` | present / absent      | absent            | Marks the tag so the adapter can find it. Needed only when `document.currentScript` is unavailable *and* the `src` does not contain `agenticschema`, that is, a module script loading a self-hosted build under another filename. Always required in 0.1.2 and earlier. |
+| `data-actions`       | `off`                 | actions generated | Turns off executable tools entirely. Read tools are unaffected. Use this if you publish a `SearchAction` you would rather agents did not call.                                                                                                                          |
+| `data-max-tools`     | integer > 0           | `24`              | Ceiling on generated tools. Agents degrade as a toolset grows; a page listing 200 products has no business producing 200 tools. Values that are not a finite number above zero are ignored.                                                                             |
+| `data-watch`         | `off`                 | watching on       | Stops the adapter following DOM changes and History API navigations. Turn it off on a static page to save a `MutationObserver`.                                                                                                                                         |
+| `data-allow-hosts`   | comma-separated hosts | page origin only  | Extra hosts an action's destination may point at, beyond the page's own origin. Whitespace around each entry is trimmed. Widening this deliberately widens the exfiltration surface, so read [Security](#security) first.                                               |
+
 
 A page that uses all of them:
 
@@ -286,9 +357,9 @@ A page that uses all of them:
         src="https://cdn.jsdelivr.net/npm/@agenticschema/browser@0.2.0"></script>
 ```
 
-Anything not on this list — profiles, payload caps, custom tools, timeouts — is reachable only
-from [the JavaScript API](#the-javascript-api). The attribute surface is deliberately the small,
-safe subset that makes sense to set from markup.
+Anything not on this list, such as profiles, payload caps, custom tools and timeouts, is
+reachable only from [the JavaScript API](#the-javascript-api). The attribute surface is
+deliberately the small, safe subset that makes sense to set from markup.
 
 ### Content-Security-Policy
 
@@ -298,7 +369,7 @@ A page with a CSP has to allow `cdn.jsdelivr.net` in `script-src`, or the tag ne
 Content-Security-Policy: script-src 'self' https://cdn.jsdelivr.net;
 ```
 
-If you would rather not open the CDN, self-host `dist/cdn/auto.js` — it is a single
+If you would rather not open the CDN, self-host `dist/cdn/auto.js`. It is a single
 self-contained file, roughly 27 KB gzipped, with the WebMCP polyfill already inside.
 
 The relay embed from tag ② is a **second** origin to allow, and it also creates a `blob:` iframe
@@ -323,25 +394,36 @@ was left out of the bundle, and because the failure was silent the page looked h
 
 ---
 
+
+
 ## Choosing a transport
 
 The tools are registered. Something has to carry them to an agent. There are three real options
 and one non-option:
 
-| Transport | Who calls the tools | Setup | Good for |
-| --- | --- | --- | --- |
-| **Native browser WebMCP** | the browser's own agent | none — the browser provides `document.modelContext` | the actual end state of the proposal, once shipped |
-| **Local relay** (`embed.js`) | your desktop MCP client: Claude Desktop, Cursor, Claude Code | one script tag + `npx @mcp-b/webmcp-local-relay` | development, testing, personal automation |
-| **Browser extension** | whatever the extension is wired to | install the extension | using tools across sites you do not control |
-| **Nothing** | nobody | — | registering tools and wondering why no one calls them |
+
+| Transport                    | Who calls the tools                                          | Setup                                              | Good for                                              |
+| ---------------------------- | ------------------------------------------------------------ | -------------------------------------------------- | ----------------------------------------------------- |
+| **Native browser WebMCP**    | the browser's own agent                                      | none: the browser provides `document.modelContext` | the end state, once it is on by default               |
+| **Chrome origin trial**      | the browser's own agent, on your visitors' own Chrome        | register a token for your origin and serve it      | trying the native path on real traffic today          |
+| **Local relay** (`embed.js`) | your desktop MCP client: Claude Desktop, Cursor, Claude Code | one script tag + `npx @mcp-b/webmcp-local-relay`   | development, testing, personal automation             |
+| **Browser extension**        | whatever the extension is wired to                           | install the extension                              | using tools across sites you do not control           |
+| **Nothing**                  | nobody                                                       | none                                               | registering tools and wondering why no one calls them |
+
 
 Only the local relay needs anything from your page's HTML. That is the one this section covers,
 because it is the one people reach for first and the one whose failure mode is confusing.
 
-Native WebMCP is still behind a flag. Chrome exposes it via `chrome://flags/#enable-webmcp-testing`
-(restart required); some builds also need `--enable-experimental-web-platform-features`. Because
-it is off by default for nearly everyone, `@mcp-b/webmcp-polyfill` is a hard dependency of the
-browser adapter rather than an optional one — the polyfill is the normal case, not the exception.
+Native WebMCP is not on by default in any browser yet, but it is no longer flag-only. Chrome
+exposes it for local development via `chrome://flags/#enable-webmcp-testing` (restart required);
+some builds also need `--enable-experimental-web-platform-features`. Since Chrome 149 there is
+also an [origin trial](https://developer.chrome.com/blog/ai-webmcp-origin-trial): register a token
+for your origin, serve it, and the native path works for ordinary visitors on production traffic
+with no flag on their side.
+
+Because it is still off by default for nearly everyone, `@mcp-b/webmcp-polyfill` stays a hard
+dependency of the browser adapter rather than an optional one. The polyfill is the normal case
+here.
 
 ### What `embed.js` actually does
 
@@ -370,19 +452,21 @@ Worth understanding before you put it on a page, because it does more than load 
 Concretely, on every page load it:
 
 1. injects a hidden `<iframe>` from a `blob:` URL,
-2. opens a **WebSocket to `ws://127.0.0.1:9333`** from inside that iframe,
-3. enumerates the page's tools — `document.modelContext.listTools()` + `callTool()` when present,
-   falling back to `navigator.modelContextTesting.listTools()` + `executeTool()`,
+2. opens a **WebSocket to** `ws://127.0.0.1:9333` from inside that iframe,
+3. enumerates the page's tools: `document.modelContext.listTools()` + `callTool()` when present,
+  falling back to `navigator.modelContextTesting.listTools()` + `executeTool()`,
 4. forwards them to the relay, which re-registers them as ordinary MCP tools over stdio,
 5. **reconnects if the relay is not there**, with exponential backoff from 500 ms to 3 s
-   (1.5× multiplier), giving up after 100 attempts.
+  (1.5× multiplier), giving up after 100 attempts.
 
 Its own attributes:
 
-| Attribute | Default | What it does |
-| --- | --- | --- |
-| `data-relay-port` | `9333` | Port to connect to. Must match the relay's `--port`. |
+
+| Attribute              | Default | What it does                                                                                   |
+| ---------------------- | ------- | ---------------------------------------------------------------------------------------------- |
+| `data-relay-port`      | `9333`  | Port to connect to. Must match the relay's `--port`.                                           |
 | `data-request-timeout` | `60000` | Per-request ceiling in ms. Raise it if a tool chains slow API calls and might exceed a minute. |
+
 
 And on the relay process:
 
@@ -402,7 +486,7 @@ anything.
 ### Keep the relay out of production
 
 Tag ② should not reach real visitors. For each of them it would inject a hidden iframe and
-attempt a WebSocket to `127.0.0.1:9333` — a port that, on their machine, is either nothing at all
+attempt a WebSocket to `127.0.0.1:9333`, a port that, on their machine, is either nothing at all
 or something that is none of your business. With the retry policy above that is roughly five
 minutes of futile reconnection per page view, plus a page that visibly probes the visitor's own
 loopback interface.
@@ -426,11 +510,13 @@ Next.js:
 Vite or plain HTML with a bundler: wrap it in `import.meta.env.DEV`, or simply keep the tag in a
 local-only template.
 
-Tag ① — `@agenticschema/browser` — is designed to ship. It opens no connections, and on a browser
+Tag ①, `@agenticschema/browser`, is designed to ship. It opens no connections, and on a browser
 with no WebMCP and no polyfill available it registers nothing and logs a warning rather than
 throwing.
 
 ---
+
+
 
 ## The JavaScript API
 
@@ -445,27 +531,35 @@ const handle = await start({
   allowedHosts: ['api.example.com'],
 });
 
-handle.tools();         // ToolDescriptor[] — what is currently registered
+handle.tools();         // ToolDescriptor[]: what is currently registered
 await handle.refresh(); // remap now; a no-op if the markup has not changed
 handle.stop();          // unregister everything and stop watching
 ```
 
 `start()` accepts every [pipeline option](#every-pipeline-option) plus four of its own:
 
-| Option | Type | Default | What it does |
-| --- | --- | --- | --- |
-| `document` | `Document` | the page's own | The document to read. Lets you map an iframe, or a `linkedom`/`happy-dom` document under test. |
-| `watch` | `boolean` | `true` | Follow route changes and markup edits in single-page apps. |
-| `debounceMs` | `number` | `250` | How long to wait after a DOM change before remapping. |
-| `modelContext` | `ModelContext` | `document.modelContext` | The WebMCP surface to register on. Injectable for tests. |
+
+| Option         | Type           | Default                 | What it does                                                                                   |
+| -------------- | -------------- | ----------------------- | ---------------------------------------------------------------------------------------------- |
+| `document`     | `Document`     | the page's own          | The document to read. Lets you map an iframe, or a `linkedom`/`happy-dom` document under test. |
+| `watch`        | `boolean`      | `true`                  | Follow route changes and markup edits in single-page apps.                                     |
+| `debounceMs`   | `number`       | `250`                   | How long to wait after a DOM change before remapping.                                          |
+| `modelContext` | `ModelContext` | `document.modelContext` | The WebMCP surface to register on. Injectable for tests.                                       |
+
+
+
 
 ### The returned `Handle`
 
-| Member | Returns | Notes |
-| --- | --- | --- |
-| `tools()` | `readonly ToolDescriptor[]` | What is registered right now. |
-| `refresh()` | `Promise<void>` | Remaps immediately. Compares a fingerprint of the markup, so it does nothing when nothing changed. |
-| `stop()` | `void` | Aborts every registration and detaches the watchers. |
+
+| Member      | Returns                     | Notes                                                                                              |
+| ----------- | --------------------------- | -------------------------------------------------------------------------------------------------- |
+| `tools()`   | `readonly ToolDescriptor[]` | What is registered right now.                                                                      |
+| `refresh()` | `Promise<void>`             | Remaps immediately. Compares a fingerprint of the markup, so it does nothing when nothing changed. |
+| `stop()`    | `void`                      | Aborts every registration and detaches the watchers.                                               |
+
+
+
 
 ### How watching works
 
@@ -473,15 +567,17 @@ WebMCP has no `unregisterTool`, so the adapter registers every tool with an `Abo
 aborts the whole batch to replace it. A remap is triggered by:
 
 - a `MutationObserver` on `ld+json` script blocks and on the `itemscope`, `itemprop`, `itemtype`,
-  `typeof` and `property` attributes,
+`typeof` and `property` attributes,
 - `history.pushState`, `history.replaceState` and `popstate`, because in a single-page app the
-  route can change before the new markup arrives.
+route can change before the new markup arrives.
 
 Both signals are debounced together by `debounceMs`. The comparison is made against a fingerprint
 of the *markup*, not of the tool names: when only a price changes the names stay identical while
 the tool closures are already stale.
 
 ---
+
+
 
 ## The core pipeline
 
@@ -494,19 +590,34 @@ import { toTools } from '@agenticschema/core';
 const { tools, diagnostics, graph } = toTools(documentOrHtmlString, options);
 ```
 
-The five stages:
+The five stages, and where each adapter picks the result up:
 
-| Stage | Does |
-| --- | --- |
-| **extract** | Pulls out the raw structured-data blobs without interpreting them. |
+```
+                    ┌──────────────── @agenticschema/core ─────────────────┐
+ Document │ HTML    │                                                      │
+ │ JSON-LD ───────► │  extract ──► normalize ──► select ──► map ──► guard  │ ──► ToolDescriptor[]
+                    └──────────────────────────────────────────────────────┘
+                                              │
+                          ┌───────────────────┴───────────────────┐
+                          ▼                                       ▼
+             @agenticschema/browser                   @agenticschema/server
+             document.modelContext                    stdio / fetch handler
+             (script tag, WebMCP)                     (works with any MCP client today)
+```
+
+
+| Stage         | Does                                                                                                                                                                    |
+| ------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **extract**   | Pulls out the raw structured-data blobs without interpreting them.                                                                                                      |
 | **normalize** | Flattens `@graph`, resolves `@id`, strips vocabulary prefixes, makes `@type` and all values arrays, hoists nested entities to top level, merges nodes sharing an `@id`. |
-| **select** | Decides which entities deserve a tool and which collapse together. |
-| **map** | Applies a type profile to produce names, descriptions and JSON Schemas. |
-| **guard** | Validates names, cleans descriptions, caps payloads. |
+| **select**    | Decides which entities deserve a tool and which collapse together.                                                                                                      |
+| **map**       | Applies a type profile to produce names, descriptions and JSON Schemas.                                                                                                 |
+| **guard**     | Validates names, cleans descriptions, caps payloads.                                                                                                                    |
 
-One extraction detail that catches people out: **if `source` is an HTML string, only JSON-LD comes
-out.** Microdata and RDFa need a real HTML parser. Pass a `Document` — the browser's own, or one
-from `linkedom` or `happy-dom` on Node — to get all three formats.
+
+One extraction detail that catches people out: **if** `source` **is an HTML string, only JSON-LD comes
+out.** Microdata and RDFa need a real HTML parser. Pass a `Document`, either the browser's own or
+one from `linkedom` or `happy-dom` on Node, to get all three formats.
 
 ### Every pipeline option
 
@@ -514,73 +625,91 @@ Shared by `toTools()`, `start()` and `createServer()`.
 
 **Extraction**
 
-| Option | Type | Default | What it does |
-| --- | --- | --- | --- |
-| `formats` | `Array<'jsonld' \| 'microdata' \| 'rdfa'>` | all three | Which formats to read. Only `jsonld` has any effect when the source is an HTML string. |
+
+| Option    | Type                                     | Default   | What it does                                                                           |
+| --------- | ---------------------------------------- | --------- | -------------------------------------------------------------------------------------- |
+| `formats` | `Array<'jsonld' | 'microdata' | 'rdfa'>` | all three | Which formats to read. Only `jsonld` has any effect when the source is an HTML string. |
+
 
 **Normalisation**
 
-| Option | Type | Default | What it does |
-| --- | --- | --- | --- |
-| `baseUrl` | `string` | page URL in the browser | Base for resolving relative `@id` values. Also the fallback source of `pageOrigin`. |
-| `maxDepth` | `number` | `12` | Maximum nesting depth. The guard against circular references; exceeding it emits a `depth-limit` diagnostic. |
+
+| Option     | Type     | Default                 | What it does                                                                                                 |
+| ---------- | -------- | ----------------------- | ------------------------------------------------------------------------------------------------------------ |
+| `baseUrl`  | `string` | page URL in the browser | Base for resolving relative `@id` values. Also the fallback source of `pageOrigin`.                          |
+| `maxDepth` | `number` | `12`                    | Maximum nesting depth. The guard against circular references; exceeding it emits a `depth-limit` diagnostic. |
+
 
 **Mapping**
 
-| Option | Type | Default | What it does |
-| --- | --- | --- | --- |
-| `profiles` | `Profile[]` | generic profile only | The profile registry. `@agenticschema/profiles` supplies ~20 hand-written ones. Without it every entity falls back to generic naming. |
-| `ancestorsOf` | `(type: string) => string[]` | none | Resolves a Schema.org type's ancestors, so `Vehicle` can use the `Product` profile without anyone declaring it. Also from `@agenticschema/profiles`. |
-| `maxTools` | `number` | `24` | Ceiling on generated tools. Hitting it emits a `tool-limit` diagnostic. |
+
+| Option        | Type                         | Default              | What it does                                                                                                                                         |
+| ------------- | ---------------------------- | -------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `profiles`    | `Profile[]`                  | generic profile only | The profile registry. `@agenticschema/profiles` supplies ~20 hand-written ones. Without it every entity falls back to generic naming.                |
+| `ancestorsOf` | `(type: string) => string[]` | none                 | Resolves a Schema.org type's ancestors, so `Vehicle` can use the `Product` profile without anyone declaring it. Also from `@agenticschema/profiles`. |
+| `maxTools`    | `number`                     | `24`                 | Ceiling on generated tools. Hitting it emits a `tool-limit` diagnostic.                                                                              |
+
 
 In the browser adapter `profiles` and `ancestorsOf` load automatically, in their own chunk, after
-the adapter is already running — they weigh more than everything else combined, and a page that
+the adapter is already running. They weigh more than everything else combined, and a page that
 includes the script should pay as little as possible up front. If that chunk never arrives the
 adapter carries on with generic tool names and warns loudly, because tools with generic names look
 healthy from the outside.
 
 **Actions**
 
-| Option | Type | Default | What it does |
-| --- | --- | --- | --- |
-| `actions` | `'auto' \| 'off'` | `'auto'` | `off` disables executable tool generation entirely. |
-| `pageOrigin` | `string` | derived from `baseUrl` | The origin actions are vetted against. **With neither this nor `baseUrl`, no action tools are generated at all** — there is no way to check where a request would go. |
-| `allowedHosts` | `readonly string[]` | `[]` | Extra hosts allowed beyond the page's own origin. |
-| `timeoutMs` | `number` | `10000` | Ceiling on an action request. Without one, an endpoint that never answers leaves the agent waiting forever. |
-| `fetchImpl` | `typeof fetch` | global `fetch` | Injectable for tests and for the server adapter. |
+
+| Option         | Type                | Default                | What it does                                                                                                                                                                     |
+| -------------- | ------------------- | ---------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `actions`      | `'auto' | 'off'`    | `'auto'`               | `off` disables executable tool generation entirely.                                                                                                                              |
+| `pageOrigin`   | `string`            | derived from `baseUrl` | The origin actions are vetted against. **With neither this nor** `baseUrl`**, no action tools are generated at all**, because there is no way to check where a request would go. |
+| `allowedHosts` | `readonly string[]` | `[]`                   | Extra hosts allowed beyond the page's own origin.                                                                                                                                |
+| `timeoutMs`    | `number`            | `10000`                | Ceiling on an action request. Without one, an endpoint that never answers leaves the agent waiting forever.                                                                      |
+| `fetchImpl`    | `typeof fetch`      | global `fetch`         | Injectable for tests and for the server adapter.                                                                                                                                 |
+
 
 **Guard**
 
-| Option | Type | Default | What it does |
-| --- | --- | --- | --- |
-| `maxDescriptionLength` | `number` | `320` | Longest a tool description may be. |
-| `maxPayloadBytes` | `number` | `32000` | Ceiling on the bytes a tool may return. Truncation emits `field-truncated`. |
+
+| Option                 | Type     | Default | What it does                                                                |
+| ---------------------- | -------- | ------- | --------------------------------------------------------------------------- |
+| `maxDescriptionLength` | `number` | `320`   | Longest a tool description may be.                                          |
+| `maxPayloadBytes`      | `number` | `32000` | Ceiling on the bytes a tool may return. Truncation emits `field-truncated`. |
+
 
 **Custom tools**
 
-| Option | Type | Default | What it does |
-| --- | --- | --- | --- |
-| `custom` | `readonly CustomTool[]` | `[]` | Hand-declared tools. On a name clash these win over generated ones. See [Custom tools](#custom-tools). |
+
+| Option   | Type                    | Default | What it does                                                                                           |
+| -------- | ----------------------- | ------- | ------------------------------------------------------------------------------------------------------ |
+| `custom` | `readonly CustomTool[]` | `[]`    | Hand-declared tools. On a name clash these win over generated ones. See [Custom tools](#custom-tools). |
+
+
+
 
 ### Diagnostics
 
 `toTools()` returns a `diagnostics` array alongside the tools. Nothing throws for page-content
-problems — a malformed page produces fewer tools and a diagnostic, never an exception.
+problems: a malformed page produces fewer tools and a diagnostic, never an exception.
 
-| Code | Level | Means |
-| --- | --- | --- |
-| `json-parse-error` | warn | An `ld+json` block did not parse. The others are still processed. |
-| `unknown-context` | warn | A node's `@context` is not recognisable as Schema.org. |
-| `depth-limit` | warn | Nesting exceeded `maxDepth`; the branch was cut. |
-| `no-structured-data` | info | The page carries none. Not an error. |
-| `action-skipped` | info | A `potentialAction` did not pass the rules, with the reason. |
-| `tool-limit` | info | `maxTools` was reached and the remainder dropped. |
-| `field-truncated` | info | A value was cut to fit `maxPayloadBytes` or `maxDescriptionLength`. |
+
+| Code                 | Level | Means                                                               |
+| -------------------- | ----- | ------------------------------------------------------------------- |
+| `json-parse-error`   | warn  | An `ld+json` block did not parse. The others are still processed.   |
+| `unknown-context`    | warn  | A node's `@context` is not recognisable as Schema.org.              |
+| `depth-limit`        | warn  | Nesting exceeded `maxDepth`; the branch was cut.                    |
+| `no-structured-data` | info  | The page carries none. Not an error.                                |
+| `action-skipped`     | info  | A `potentialAction` did not pass the rules, with the reason.        |
+| `tool-limit`         | info  | `maxTools` was reached and the remainder dropped.                   |
+| `field-truncated`    | info  | A value was cut to fit `maxPayloadBytes` or `maxDescriptionLength`. |
+
 
 The Node server prints everything above `info` to stderr unless `--quiet` is passed. In the
-browser, read them from `toTools()` directly — `start()` does not surface them.
+browser, read them from `toTools()` directly. `start()` does not surface them.
 
 ---
+
+
 
 ## The Node server
 
@@ -592,17 +721,19 @@ becomes a readable MCP resource as well as a tool.
 npx @agenticschema/server <url> [<url>...] [options]
 ```
 
-| Flag | Default | What it does |
-| --- | --- | --- |
-| `--max-tools <n>` | `24` | Cap on generated tools. |
-| `--no-actions` | actions on | Do not build executable tools from `potentialAction`. |
-| `--allow-host <host>` | none | Extra host allowed for actions. Repeatable. |
-| `--http` | off | Serve over HTTP instead of stdio. Binds `127.0.0.1` only. |
-| `--port <n>` | `3111` | Port for `--http`. |
-| `--quiet` | off | Keep diagnostics off stderr. |
-| `-h`, `--help` | — | Print usage and exit. |
 
-Multiple URLs are merged into one server. Diagnostics and the tool list go to **stderr**, always —
+| Flag                  | Default    | What it does                                              |
+| --------------------- | ---------- | --------------------------------------------------------- |
+| `--max-tools <n>`     | `24`       | Cap on generated tools.                                   |
+| `--no-actions`        | actions on | Do not build executable tools from `potentialAction`.     |
+| `--allow-host <host>` | none       | Extra host allowed for actions. Repeatable.               |
+| `--http`              | off        | Serve over HTTP instead of stdio. Binds `127.0.0.1` only. |
+| `--port <n>`          | `3111`     | Port for `--http`.                                        |
+| `--quiet`             | off        | Keep diagnostics off stderr.                              |
+| `-h`, `--help`        | n/a        | Print usage and exit.                                     |
+
+
+Multiple URLs are merged into one server. Diagnostics and the tool list go to **stderr**, always.
 stdout belongs to the protocol.
 
 Programmatic use:
@@ -615,6 +746,8 @@ const { server, tools, diagnostics } = await createServer(
   { maxTools: 12, actions: 'off', allowedHosts: [] }
 );
 ```
+
+
 
 ### Over HTTP
 
@@ -630,7 +763,7 @@ export default { fetch: (request) => handler.fetch(request) };
 ```
 
 The 2026-07-28 revision is stateless, so the SDK builds a fresh server per request. The pages
-are read once, when the handler is created — refetching them per request would turn every
+are read once, when the handler is created. Refetching them per request would turn every
 `tools/list` into a live hit on someone else's origin.
 
 **It performs no authentication and no host or origin checking.** On a Worker that is the
@@ -643,21 +776,26 @@ theoretical one.
 
 Results of `tools/list`, `resources/list` and `resources/read` carry the `ttlMs` / `cacheScope`
 fields the 2026-07-28 revision requires. Without them the SDK emits the most pessimistic pair it
-can — `ttlMs: 0`, `cacheScope: 'private'` — which tells every client to refetch a listing that
+can, `ttlMs: 0` with `cacheScope: 'private'`, which tells every client to refetch a listing that
 cannot have changed: pages are read once at startup and never refetched.
 
-| Result | Default | Why |
-| --- | --- | --- |
-| `tools/list`, `resources/list`, `server/discover` | `300000` ms, `public` | The guard keeps page text out of tool descriptions, so nothing in a listing belongs to whoever asked, and a shared cache may hold it. |
-| `resources/read` | `300000` ms, `private` | This is the page's own content. A caller can hand us `html` from somewhere we know nothing about, so authorising a shared cache over it is not ours to do. |
+
+| Result                                            | Default                | Why                                                                                                                                                        |
+| ------------------------------------------------- | ---------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `tools/list`, `resources/list`, `server/discover` | `300000` ms, `public`  | The guard keeps page text out of tool descriptions, so nothing in a listing belongs to whoever asked, and a shared cache may hold it.                      |
+| `resources/read`                                  | `300000` ms, `private` | This is the page's own content. A caller can hand us `html` from somewhere we know nothing about, so authorising a shared cache over it is not ours to do. |
+
 
 `cacheTtlMs` changes the lifetime; `0` restores the SDK default.
 
 ---
 
+
+
 ## What it produces on real pages
 
-Two pages, both openly licensed, run through the pipeline exactly as they are published today:
+The Open Food Facts listing at the top of this file is one of two pages here. The other is
+Wikipedia, run through the pipeline exactly as it is published today:
 
 ```
 en.wikipedia.org/wiki/Backpack
@@ -665,22 +803,16 @@ en.wikipedia.org/wiki/Backpack
   read    get_article_author
   read    get_article_publisher
   read    get_media
-
-world.openfoodfacts.org/product/3017620422003
-  read    get_web_site
-  read    get_organization
-  read    get_search_action
-  action  search_web_site(search_term_string)
 ```
 
-The second one is the interesting case. `search_web_site` is **executable**: an agent holding
-it queries Open Food Facts directly, instead of guessing a URL or going through a search
-engine. It exists because that page publishes a `SearchAction` whose target sits on its own
-origin, which is the only shape that gets past the guard described below.
+Nothing executable comes out of that page: all four tools are readers. Open Food Facts is the
+interesting case because `search_web_site` is not. That tool exists because the page publishes a
+`SearchAction` whose target sits on its own origin, which is the only shape that gets past the
+guard described below.
 
-`get_search_action` in that list is noise — a reader over the action's own definition, which
-is of no use to an agent. It is a known rough edge, left visible here rather than trimmed out
-of the example.
+`get_search_action` in the Open Food Facts listing is noise, a reader over the action's own
+definition, which is of no use to an agent. It is a known rough edge, left visible rather than
+trimmed out of the example.
 
 Sites were picked for their licensing, not their fame. Wikipedia and Open Food Facts both
 publish under open licences and permit automated access; plenty of better-known sites forbid
@@ -688,50 +820,58 @@ it in their terms, and pointing this tool at them is on you.
 
 ---
 
+
+
 ## Three constraints that shaped the design
 
-**A page cannot expose an MCP endpoint.** Not "it's hard" — a browser tab cannot listen on a
-port. In the browser the transport is `document.modelContext`, provided by the browser itself.
-This library is the mapping layer, not a transport. Everything in
+**A page cannot expose an MCP endpoint.** Not "it's hard": a browser tab cannot listen on a port.
+In the browser the transport is `document.modelContext`, provided by the browser itself. This
+library is the mapping layer, not a transport. Everything in
 [Read this first](#read-this-first-registration-is-not-transport) follows from this one sentence.
 
-**WebMCP exposes tools only.** No resources, no prompts — the W3C explainer is explicit. So
-entities become *read tools* in the browser. The Node adapter, which speaks full MCP, exposes
-them as resources *as well*.
+**WebMCP exposes tools only.** No resources and no prompts, and the W3C explainer is explicit
+about it. So entities become *read tools* in the browser. The Node adapter, which speaks full
+MCP, exposes them as resources *as well*.
 
-**`potentialAction` is rare in the wild.** In practice it is almost only `SearchAction`, and
+`potentialAction` **is rare in the wild.** In practice it is almost only `SearchAction`, and
 Google retired the Sitelinks Searchbox in November 2024, so adoption is falling. Auto-derivation
-alone would produce a read-only library. That is why `defineTool()` is a first-class feature,
-not an afterthought.
+alone would produce a read-only library. That is why `defineTool()` is a first-class feature
+rather than an afterthought.
 
 ---
+
+
 
 ## Actions are deliberately restricted
 
 Read tools are always generated. Executable tools are not:
 
-| Condition | Result |
-| --- | --- |
-| `SearchAction`, `FindAction`, `ReadAction`, `ViewAction` | eligible |
-| `httpMethod` absent or `GET` | eligible |
-| Destination same-origin (or explicitly allow-listed) | eligible |
-| Anything else — `OrderAction`, `POST`, cross-origin, non-http scheme | **skipped, with a diagnostic** |
+
+| Condition                                                            | Result                         |
+| -------------------------------------------------------------------- | ------------------------------ |
+| `SearchAction`, `FindAction`, `ReadAction`, `ViewAction`             | eligible                       |
+| `httpMethod` absent or `GET`                                         | eligible                       |
+| Destination same-origin (or explicitly allow-listed)                 | eligible                       |
+| Anything else (`OrderAction`, `POST`, cross-origin, non-http scheme) | **skipped, with a diagnostic** |
+
 
 The four eligible types are all idempotent. An `OrderAction` or a `ReserveAction` has consequences
 out in the world: generating those automatically would mean that dropping a script onto a site
 makes its products orderable by any agent that wanders past.
 
-A skipped action is never silent — it produces an `action-skipped` diagnostic naming the reason.
-If you expected an action tool and did not get one, that diagnostic says why.
+A skipped action is never silent. It produces an `action-skipped` diagnostic naming the reason,
+so if you expected an action tool and did not get one, that diagnostic says why.
 
 Anything with side effects goes through explicit opt-in instead.
 
 ---
 
+
+
 ## Custom tools
 
 `custom` is the way in for everything auto-derivation cannot give you: actions with side effects,
-private endpoints, anything `potentialAction` does not describe.
+private endpoints, and anything `potentialAction` does not describe.
 
 ```js
 import { start } from '@agenticschema/browser';
@@ -753,18 +893,22 @@ start({
 });
 ```
 
-| Field | Required | Default | Notes |
-| --- | --- | --- | --- |
-| `name` | yes | — | Must match what the MCP spec allows; the guard rejects anything else. |
-| `description` | yes | — | Capped at `maxDescriptionLength`. |
-| `inputSchema` | no | empty object schema | Standard JSON Schema with `additionalProperties: false`. |
-| `execute` | yes | — | Returns `{ content: [{ type: 'text', text }] }`, optionally with `isError`. |
-| `annotations` | no | `readOnlyHint: false`, `openWorldHint: true` | Defaults assume a hand-declared tool is meant to *do* something — the opposite of generated read tools, which are always `readOnlyHint: true`. |
+
+| Field         | Required | Default                                      | Notes                                                                                                                                         |
+| ------------- | -------- | -------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------- |
+| `name`        | yes      | n/a                                          | Must match what the MCP spec allows; the guard rejects anything else.                                                                         |
+| `description` | yes      | n/a                                          | Capped at `maxDescriptionLength`.                                                                                                             |
+| `inputSchema` | no       | empty object schema                          | Standard JSON Schema with `additionalProperties: false`.                                                                                      |
+| `execute`     | yes      | n/a                                          | Returns `{ content: [{ type: 'text', text }] }`, optionally with `isError`.                                                                   |
+| `annotations` | no       | `readOnlyHint: false`, `openWorldHint: true` | Defaults assume a hand-declared tool is meant to *do* something, the opposite of generated read tools, which are always `readOnlyHint: true`. |
+
 
 Custom tools still pass through the guard: names are validated, descriptions cleaned, payloads
 capped. They win over a generated tool of the same name.
 
 ---
+
+
 
 ## Security
 
@@ -772,27 +916,27 @@ The library takes page content and puts it into a model's context. Two attack ch
 closed in `core`, so every adapter inherits them:
 
 - **Prompt injection.** A `ld+json` block injected through UGC or a compromised CMS can carry
-  instructions. Page text never enters a tool's *name* or *description* — only its *data* — and
-  is stripped of HTML and control characters, with length caps. HTML tags go first, since they
-  are the usual way to hide instructions from a human reader but not from a model. `@type` is the
-  exception, because a tool is named after it: it is taken only where it is shaped like a type
-  (one word, letters and digits, 40 characters at most) and becomes `Thing` where it is not.
-- **Exfiltration via `urlTemplate`.** A hostile action could point elsewhere and receive the
-  parameters. Destinations are same-origin by default, https-only, RFC 6570 level 1 only, and
-  re-validated **after** template expansion so a crafted value cannot move the target. Redirects
-  are refused rather than followed, since a 3xx would land past both checks.
+instructions. Page text never enters a tool's *name* or *description*, only its *data*, and
+is stripped of HTML and control characters, with length caps. HTML tags go first, since they
+are the usual way to hide instructions from a human reader but not from a model. `@type` is the
+exception, because a tool is named after it: it is taken only where it is shaped like a type
+(one word, letters and digits, 40 characters at most) and becomes `Thing` where it is not.
+- **Exfiltration via** `urlTemplate`**.** A hostile action could point elsewhere and receive the
+parameters. Destinations are same-origin by default, https-only, RFC 6570 level 1 only, and
+re-validated **after** template expansion so a crafted value cannot move the target. Redirects
+are refused rather than followed, since a 3xx would land past both checks.
 
 Plus a cap on tool count (default 24, read and action tools sharing the one budget) and on
 payload size, because agents degrade badly with large or bloated toolsets. Secondary entities of
-the same type collapse into a single tool — nine indistinguishable `get_person` tools are useless
+the same type collapse into a single tool: nine indistinguishable `get_person` tools are useless
 to an agent; one `list_person` is not.
 
 Two things that are **your** decision, not the library's:
 
-- **`allowedHosts` / `--allow-host` widens the exfiltration surface on purpose.** Every host you
-  add is a destination an action's expanded URL may reach. Add hosts you control.
-- **The local relay's default `--widget-origin` is `*`.** Any page in your browser that loads the
-  embed can register tools with your MCP client. Restrict it once you are past first setup.
+- `allowedHosts` and `--allow-host` widen the exfiltration surface on purpose. Every host you add
+is a destination an action's expanded URL may reach. Add hosts you control.
+- The local relay's default `--widget-origin` is `*`. Any page in your browser that loads the
+embed can register tools with your MCP client. Restrict it once you are past first setup.
 
 If you put this in front of an agent that can act on someone's behalf, read
 [SECURITY.md](SECURITY.md) first: it sets out what the threat model does and, more importantly,
@@ -800,70 +944,84 @@ does not cover.
 
 ---
 
+
+
 ## Troubleshooting
 
-| Symptom | Cause | Fix |
-| --- | --- | --- |
-| Tools visible in DevTools → Application, but the MCP client shows **0 sources** | Registration done, transport missing | Add the relay embed tag — [Choosing a transport](#choosing-a-transport) |
-| `webmcp_list_sources` returns `count: 0` | The page never opened the WebSocket | Confirm `embed.js` is in the page *and* the relay process is running |
-| A `data-*` option has no effect | The adapter cannot identify its own tag: `type="module"` on a self-hosted `src` without `agenticschema` in it, or version 0.1.2 or earlier | Drop `type="module"`, or add `data-agenticschema` — [How the adapter finds its own tag](#how-the-adapter-finds-its-own-tag) |
-| No tools at all, no errors | Version 0.1.1 or earlier on a browser without native WebMCP | Upgrade to `@0.1.2` or later |
-| The script tag never runs | CSP blocks `cdn.jsdelivr.net` | Allow it in `script-src`, or self-host `dist/cdn/auto.js` |
-| Tools appear with generic names | The profiles chunk failed to load | Check the console for the warning; check CSP and network |
-| No action tool from a `SearchAction` | Cross-origin target, `POST`, non-http scheme, or no `pageOrigin` | Read the `action-skipped` diagnostic; set `baseUrl` if running headless |
-| `list_*` instead of several `get_*` | Working as intended — same-type entities collapse | Nothing to fix |
-| Tools stop updating in an SPA | `data-watch="off"`, or the markup is replaced in a way the observer misses | Remove `data-watch="off"`; call `handle.refresh()` manually |
-| Fewer tools than entities | `maxTools` reached | Raise `data-max-tools`; check for the `tool-limit` diagnostic |
-| Truncated values in a tool result | `maxPayloadBytes` reached | Raise it via the JS API; check for `field-truncated` |
-| `"mode": "client"` in relay output | A second relay instance is sharing the first | Normal, not a fault |
-| `Host response timeout` from the relay | A tool took longer than 60 s | Raise `data-request-timeout` on the embed tag |
-| Connection refused on the relay port | Port mismatch | `data-relay-port` must equal the relay's `--port` |
+
+| Symptom                                                                         | Cause                                                                                                                                      | Fix                                                                                                                            |
+| ------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------ |
+| Tools visible in DevTools → Application, but the MCP client shows **0 sources** | Registration done, transport missing                                                                                                       | Add the relay embed tag. See [Choosing a transport](#choosing-a-transport)                                                     |
+| `webmcp_list_sources` returns `count: 0`                                        | The page never opened the WebSocket                                                                                                        | Confirm `embed.js` is in the page *and* the relay process is running                                                           |
+| A `data-*` option has no effect                                                 | The adapter cannot identify its own tag: `type="module"` on a self-hosted `src` without `agenticschema` in it, or version 0.1.2 or earlier | Drop `type="module"`, or add `data-agenticschema`. See [How the adapter finds its own tag](#how-the-adapter-finds-its-own-tag) |
+| No tools at all, no errors                                                      | Version 0.1.1 or earlier on a browser without native WebMCP                                                                                | Upgrade to `@0.1.2` or later                                                                                                   |
+| The script tag never runs                                                       | CSP blocks `cdn.jsdelivr.net`                                                                                                              | Allow it in `script-src`, or self-host `dist/cdn/auto.js`                                                                      |
+| Tools appear with generic names                                                 | The profiles chunk failed to load                                                                                                          | Check the console for the warning; check CSP and network                                                                       |
+| No action tool from a `SearchAction`                                            | Cross-origin target, `POST`, non-http scheme, or no `pageOrigin`                                                                           | Read the `action-skipped` diagnostic; set `baseUrl` if running headless                                                        |
+| `list_*` instead of several `get_*`                                             | Working as intended: same-type entities collapse                                                                                           | Nothing to fix                                                                                                                 |
+| Tools stop updating in an SPA                                                   | `data-watch="off"`, or the markup is replaced in a way the observer misses                                                                 | Remove `data-watch="off"`; call `handle.refresh()` manually                                                                    |
+| Fewer tools than entities                                                       | `maxTools` reached                                                                                                                         | Raise `data-max-tools`; check for the `tool-limit` diagnostic                                                                  |
+| Truncated values in a tool result                                               | `maxPayloadBytes` reached                                                                                                                  | Raise it via the JS API; check for `field-truncated`                                                                           |
+| `"mode": "client"` in relay output                                              | A second relay instance is sharing the first                                                                                               | Normal, not a fault                                                                                                            |
+| `Host response timeout` from the relay                                          | A tool took longer than 60 s                                                                                                               | Raise `data-request-timeout` on the embed tag                                                                                  |
+| Connection refused on the relay port                                            | Port mismatch                                                                                                                              | `data-relay-port` must equal the relay's `--port`                                                                              |
+
 
 ---
+
+
 
 ## Known rough edges
 
 Listed rather than hidden, because finding them yourself costs more than reading them here.
 
-- **Tag identification is heuristic.** `document.currentScript` is `null` in module scripts, so
-  the adapter looks for `data-agenticschema` or an `src` containing `agenticschema`. A
-  self-hosted build under an unrelated filename and without the marker matches neither, and its
-  options are ignored in silence.
-- **`get_search_action`** — a read tool over an action's own definition, of no use to an agent.
-- **No diagnostics from `start()`.** The browser adapter drops the diagnostics array. Call
-  `toTools()` directly to see it.
-- **WebMCP has no `unregisterTool`**, so every remap aborts and re-registers the whole batch.
-- **Actions need an origin.** Headless use with neither `baseUrl` nor `pageOrigin` silently
-  produces no action tools.
+- Tag identification is heuristic. `document.currentScript` is `null` in module scripts, so the
+adapter looks for `data-agenticschema` or an `src` containing `agenticschema`. A self-hosted
+build under an unrelated filename and without the marker matches neither, and its options are
+ignored in silence.
+- `get_search_action` is a read tool over an action's own definition, of no use to an agent.
+- `start()` surfaces no diagnostics. The browser adapter drops the array; call `toTools()`
+directly to see it.
+- WebMCP has no `unregisterTool`, so every remap aborts and re-registers the whole batch.
+- Actions need an origin. Headless use with neither `baseUrl` nor `pageOrigin` silently produces
+no action tools.
 
 ---
 
+
+
 ## Packages
 
-| Package | Purpose |
-| --- | --- |
-| `@agenticschema/core` | The pipeline. No MCP, no DOM assumptions. Zero runtime dependencies. |
-| `@agenticschema/profiles` | ~20 hand-written type profiles + the Schema.org hierarchy. |
-| `@agenticschema/browser` | WebMCP adapter. Script-tag build is one self-contained file, 27 KB gzip, polyfill included. |
-| `@agenticschema/server` | MCP server over stdio, plus a fetch-shaped HTTP handler for Workers and other HTTP runtimes. Speaks the 2026-07-28 revision. |
+
+| Package                   | Purpose                                                                                                                      |
+| ------------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
+| `@agenticschema/core`     | The pipeline. No MCP, no DOM assumptions. Zero runtime dependencies.                                                         |
+| `@agenticschema/profiles` | ~20 hand-written type profiles + the Schema.org hierarchy.                                                                   |
+| `@agenticschema/browser`  | WebMCP adapter. Script-tag build is one self-contained file, 27 KB gzip, polyfill included.                                  |
+| `@agenticschema/server`   | MCP server over stdio, plus a fetch-shaped HTTP handler for Workers and other HTTP runtimes. Speaks the 2026-07-28 revision. |
+
 
 Third-party pieces this works with, both from the `@mcp-b` project: `@mcp-b/webmcp-polyfill`
 (a dependency of the browser adapter) and `@mcp-b/webmcp-local-relay` (the optional transport).
 
 ---
 
+
+
 ## How it compares
 
-- **`schema-org-mcp`** serves the Schema.org *vocabulary* to an LLM (validate types, generate
-  snippets). It does not look at real pages.
-- **`wmcp.sh`** is a hosted SaaS doing something adjacent server-side. This is an embeddable
-  open-source library, client-side first.
-- **`@mcp-b/*`** provide the WebMCP transport and polyfill. This builds on them; it does not
-  replace them.
+- `schema-org-mcp` serves the Schema.org *vocabulary* to an LLM (validate types, generate
+snippets). It does not look at real pages.
+- `wmcp.sh` is a hosted SaaS doing something adjacent server-side. This is an embeddable
+open-source library, client-side first.
+- `@mcp-b/*` provide the WebMCP transport and polyfill. This builds on them; it does not
+replace them.
 
-The mapping layer — Schema.org to MCP — is the part that did not exist.
+The mapping layer from Schema.org to MCP is the part that did not exist.
 
 ---
+
+
 
 ## Development
 
@@ -879,20 +1037,23 @@ npm run size      # fails if the script-tag build has an import a browser cannot
 `npm run corpus:fetch` refreshes the real-page fixtures.
 `npm run build:hierarchy -w @agenticschema/profiles` regenerates the Schema.org type hierarchy.
 
-Contributions welcome — see [CONTRIBUTING.md](CONTRIBUTING.md) and
+Contributions welcome. See [CONTRIBUTING.md](CONTRIBUTING.md) and
 [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md).
 
 ---
 
+
+
 ## Status and disclaimer
 
-Early, pre-1.0, API not stable. WebMCP itself is a proposal — Chrome 151 ships it only behind a
-flag, which is why the polyfill is a hard dependency of the browser adapter rather than an
-optional one.
+Early, pre-1.0, API not stable. WebMCP itself is still a proposal working its way through the
+W3C. Chrome has it behind a flag for local development and, since Chrome 149, in an origin trial,
+but no browser turns it on by default yet. That is why the polyfill is a hard dependency of the
+browser adapter rather than an optional one.
 
 **Provided as is, with no warranty of any kind, express or implied.** Use at your own risk. The
 author accepts no liability for any damage, data loss, security incident, or other consequence
-arising from use of this software — see the MIT licence for the binding terms. If you put this in
+arising from use of this software. See the MIT licence for the binding terms. If you put this in
 front of an agent that can act on someone's behalf, read [SECURITY.md](SECURITY.md) first: it
 sets out what the threat model does and, more importantly, does not cover.
 
