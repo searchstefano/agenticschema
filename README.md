@@ -54,7 +54,7 @@ polyfill already inside, roughly 27 KB gzipped, so it goes wherever a `<script>`
 WordPress theme, a Shopify theme, a React, Next.js or Astro layout, or Google Tag Manager.
 
 ```html
-<script src="https://cdn.jsdelivr.net/npm/@agenticschema/browser@0.2.0"></script>
+<script src="https://cdn.jsdelivr.net/npm/@agenticschema/browser@latest"></script>
 ```
 
 You install no package and you configure no bundler. That tag reads the page and registers the
@@ -122,7 +122,7 @@ Claude Desktop, Cursor or Claude Code.
 
 ```html
 <!-- ① registration: read this page's Schema.org markup, publish it as WebMCP tools -->
-<script src="https://cdn.jsdelivr.net/npm/@agenticschema/browser@0.2.0"></script>
+<script src="https://cdn.jsdelivr.net/npm/@agenticschema/browser@latest"></script>
 
 <!-- ② transport (development only): bridge those tools to a local MCP relay -->
 <script src="https://cdn.jsdelivr.net/npm/@mcp-b/webmcp-local-relay@4/dist/browser/embed.js"></script>
@@ -155,7 +155,7 @@ costs you `document.currentScript` and with it the simplest way to read options.
 - Tag ② is for development. Shipping it to real visitors makes every one of their browsers probe
 `127.0.0.1`. See [Keep the relay out of production](#keep-the-relay-out-of-production).
 - Pin your versions. Unversioned jsDelivr URLs are cached at the edge for days, long enough to
-keep serving a build you have already replaced. `@0.2.0` and `@4` above are pins.
+keep serving a build you have already replaced. `@latest` and `@4` above are pins.
 
 If you only want the browser's own built-in agent to use the tools, you need tag ① alone.
 
@@ -287,7 +287,7 @@ whatever the file is called and however it got onto the page:
 
 ```html
 <script data-max-tools="8"
-        src="https://cdn.jsdelivr.net/npm/@agenticschema/browser@0.2.0"></script>
+        src="https://cdn.jsdelivr.net/npm/@agenticschema/browser@latest"></script>
 ```
 
 **Adding** `type="module"` **gives up rule 1.** The tag then has to be identifiable some other way:
@@ -353,7 +353,7 @@ A page that uses all of them:
         data-max-tools="8"
         data-watch="off"
         data-allow-hosts="api.example.com, search.example.com"
-        src="https://cdn.jsdelivr.net/npm/@agenticschema/browser@0.2.0"></script>
+        src="https://cdn.jsdelivr.net/npm/@agenticschema/browser@latest"></script>
 ```
 
 Anything not on this list, such as profiles, payload caps, custom tools and timeouts, is
