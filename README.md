@@ -1,5 +1,4 @@
-# AgenticSchema &middot; [GitHub license](https://github.com/searchstefano/agenticschema/blob/main/LICENSE) [npm version](https://www.npmjs.com/package/@agenticschema/core) [PRs Welcome](https://github.com/searchstefano/agenticschema/blob/main/CONTRIBUTING.md)
-
+# AgenticSchema &middot; [![GitHub license](https://img.shields.io/badge/license-MIT-blue.svg)](https://github.com/searchstefano/agenticschema/blob/main/LICENSE) [![npm version](https://img.shields.io/npm/v/@agenticschema/core.svg?style=flat)](https://www.npmjs.com/package/@agenticschema/core) [![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](https://github.com/searchstefano/agenticschema/blob/main/CONTRIBUTING.md)
 Turn the Schema.org markup a page already has into MCP tools an AI agent can call.
 
 Most pages already publish structured data. Agents still scrape them. This library closes that
