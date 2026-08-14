@@ -113,11 +113,18 @@ export async function start(options: StartOptions = {}): Promise<Handle> {
     // without WebMCP where the polyfill cannot be loaded either. It must not be
     // silent either: registering nothing looks exactly like working correctly
     // until someone goes looking for the tools.
-    console.warn(
-      '[agenticschema] no WebMCP surface available: document.modelContext is missing and ' +
-        'the polyfill did not load. No tools registered.'
-    );
-    return { tools: () => [], diagnostics: () => [], refresh: async () => {}, stop: () => {} };
+    const message =
+      'no WebMCP surface available: document.modelContext is missing and the polyfill did not load';
+    console.warn(`[agenticschema] ${message}. No tools registered.`);
+    // Reported, not just logged. An empty diagnostics array here is the one
+    // answer that misleads: to anything reading the handle, a browser with no
+    // WebMCP looked exactly like a page where everything went fine.
+    return {
+      tools: () => [],
+      diagnostics: () => [{ level: 'warn', code: 'no-webmcp-surface', message }],
+      refresh: async () => {},
+      stop: () => {},
+    };
   }
   // Rebound after the guard: the narrowing does not survive into the closures.
   const api: ModelContext = resolved;
@@ -142,16 +149,31 @@ export async function start(options: StartOptions = {}): Promise<Handle> {
     if (stopped) return;
     const current = snapshot();
     if (current === lastSnapshot) return;
-    lastSnapshot = current;
 
     controller?.abort(); // the only way to unregister: WebMCP has no unregisterTool
     controller = new AbortController();
 
-    const result = toTools(doc, {
-      ...(await loadProfiles()),
-      ...options,
-      ...(baseUrl ? { baseUrl } : {}),
-    });
+    let result;
+    try {
+      result = toTools(doc, {
+        ...(await loadProfiles()),
+        ...options,
+        ...(baseUrl ? { baseUrl } : {}),
+      });
+    } catch (err) {
+      // `lastSnapshot` is deliberately left alone. Recording this markup as done
+      // before the work succeeded froze the adapter for the rest of the session:
+      // every later refresh found the fingerprint already stored and returned
+      // without doing anything, while the tools went on describing the page the
+      // user had left.
+      registered = [];
+      reported = [
+        { level: 'error', code: 'remap-failed', message: `remap failed: ${String(err)}` },
+      ];
+      throw err;
+    }
+
+    lastSnapshot = current;
     registered = result.tools;
     // Replaced, never appended: these describe the page as it is now, and a
     // single-page app remaps on every route change.
@@ -173,13 +195,28 @@ export async function start(options: StartOptions = {}): Promise<Handle> {
   }
 
   const teardown: Array<() => void> = [];
-  if (options.watch !== false) teardown.push(watchPage(doc, refresh, debounceMs));
+  if (options.watch !== false) {
+    // The watcher fires from a timer, where nothing is waiting on the promise.
+    // Handing `refresh` over directly turned every failed remap into an
+    // unhandled rejection in the host page. The diagnostic is already recorded
+    // by then; this is what keeps the failure from escaping as a crash.
+    const onChange = (): void => {
+      void refresh().catch((err: unknown) => {
+        console.warn('[agenticschema] remap failed:', err);
+      });
+    };
+    teardown.push(watchPage(doc, onChange, debounceMs));
+  }
 
   await refresh();
 
   return {
-    tools: () => registered,
-    diagnostics: () => reported,
+    // Copies. The typed signature says `readonly`, which settles it for
+    // TypeScript, but this handle's main audience reaches it through a script
+    // tag, from plain JavaScript, where nothing stops a caller from emptying the
+    // adapter's own state.
+    tools: () => [...registered],
+    diagnostics: () => [...reported],
     refresh,
     stop: () => {
       stopped = true;

@@ -15,7 +15,13 @@ export type DiagnosticCode =
   | 'no-structured-data'
   | 'action-skipped'
   | 'tool-limit'
-  | 'field-truncated';
+  | 'field-truncated'
+  // The two below are raised by an adapter rather than by the pipeline. They
+  // live here anyway: `Diagnostic` is the one vocabulary a caller reads, and an
+  // adapter with no way to say "I could not do my job" says nothing at all,
+  // which reads exactly like a page that simply had no markup.
+  | 'remap-failed'
+  | 'no-webmcp-surface';
 
 export interface Diagnostic {
   level: 'info' | 'warn' | 'error';

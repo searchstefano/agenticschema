@@ -1,4 +1,5 @@
 # AgenticSchema &middot; [![GitHub license](https://img.shields.io/badge/license-MIT-blue.svg)](https://github.com/searchstefano/agenticschema/blob/main/LICENSE) [![npm version](https://img.shields.io/npm/v/@agenticschema/core.svg?style=flat)](https://www.npmjs.com/package/@agenticschema/core) [![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](https://github.com/searchstefano/agenticschema/blob/main/CONTRIBUTING.md)
+
 Turn the Schema.org markup a page already has into MCP tools an AI agent can call.
 
 Most pages already publish structured data. Agents still scrape them. This library closes that
@@ -703,10 +704,16 @@ problems: a malformed page produces fewer tools and a diagnostic, never an excep
 | `action-skipped`     | info  | A `potentialAction` did not pass the rules, with the reason.        |
 | `tool-limit`         | info  | `maxTools` was reached and the remainder dropped.                   |
 | `field-truncated`    | info  | A value was cut to fit `maxPayloadBytes` or `maxDescriptionLength`. |
+| `remap-failed`       | error | The browser adapter could not rebuild the tools. The page stays remappable, and the next change retries. |
+| `no-webmcp-surface`  | warn  | No `document.modelContext` and the polyfill did not load, so nothing was registered. |
 
+
+The last two come from the browser adapter rather than the pipeline. They exist because an
+adapter with no way to say "I could not do my job" says nothing at all, which reads exactly like
+a page that simply had no markup.
 
 The Node server prints everything above `info` to stderr unless `--quiet` is passed. In the
-browser, read them from `toTools()` directly. `start()` does not surface them.
+browser, `handle.diagnostics()` returns the same array.
 
 ---
 
