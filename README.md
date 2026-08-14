@@ -834,13 +834,13 @@ through the pipeline in full. Tokens per page, averaged, counted with `o200k_bas
 
 | What the model reads | Tokens | vs raw HTML | vs extracted text |
 | --- | ---: | ---: | ---: |
-| Raw HTML, as served | 143,765 | — | — |
-| Extracted text, what a competent scraper sends | 2,679 | 54x | — |
-| AgenticSchema tool output | 1,678 | **86x** | **1.6x** |
+| Raw HTML, as served | 143,771 | — | — |
+| Extracted text, what a competent scraper sends | 2,752 | 52x | — |
+| AgenticSchema tool output | 1,451 | **99x** | **1.9x** |
 
-The 86x is the number that looks good in a headline and it is the wrong one to quote. Nobody
+The 99x is the number that looks good in a headline and it is the wrong one to quote. Nobody
 serious feeds raw HTML to a model: a scraper strips the markup first, and that one step accounts
-for 54 of the 86. **Against a competent scraper the honest figure is 1.6x**, and it is not
+for 52 of the 99. **Against a competent scraper the honest figure is 1.9x**, and it is not
 uniform:
 
 | Vertical | Pages | Extracted text | AgenticSchema | vs text |
@@ -848,12 +848,13 @@ uniform:
 | reference | 50 | 3,699 | 208 | 18x |
 | news | 25 | 882 | 528 | 1.7x |
 | ecommerce | 75 | 2,912 | 1,843 | 1.6x |
-| recipe | 25 | 1,031 | **5,395** | **0.2x** |
+| recipe | 25 | 1,549 | **3,787** | **0.4x** |
 
-On recipes the library **loses**, at five times the cost of sending the text. A recipe's
-structured data is the recipe — every ingredient, every step, every timing — so the tools re-emit
-in JSON what the page already said in prose, and JSON is the more expensive encoding. That is a
-gap in the design, not a bug, and nothing in the library currently notices it.
+On recipes the library **loses**, at more than twice the cost of sending the text. A recipe's
+structured data is the recipe — every ingredient, every step, every timing, plus a nutrition
+block — so the tools re-emit in JSON what the page already said in prose, and JSON is the more
+expensive encoding. That is a gap in the design, not a bug, and nothing in the library currently
+notices it.
 
 Two things the table does not say. It is a size measurement, not a quality one: it counts what an
 agent has to read, not whether it answers better, which tool it picks, or how many calls it takes.

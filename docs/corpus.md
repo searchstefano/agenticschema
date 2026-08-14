@@ -30,13 +30,13 @@ Tokens per page, averaged over the corpus, counted with `o200k_base`:
 
 | What the model reads | Tokens | vs raw HTML | vs extracted text |
 | --- | ---: | ---: | ---: |
-| Raw HTML, as served | 143,765 | — | — |
-| Extracted text, what a competent scraper sends | 2,679 | 54x | — |
-| AgenticSchema tool output | 1,678 | **86x** | **1.6x** |
+| Raw HTML, as served | 143,771 | — | — |
+| Extracted text, what a competent scraper sends | 2,752 | 52x | — |
+| AgenticSchema tool output | 1,451 | **99x** | **1.9x** |
 
-The 86x is the number that looks good in a headline and it is the wrong one to quote. Nobody
+The 99x is the number that looks good in a headline and it is the wrong one to quote. Nobody
 serious feeds raw HTML to a model; a scraper strips the markup first, and that single step
-accounts for 54 of the 86. **Against a competent scraper the honest figure is 1.6x**, and it is
+accounts for 52 of the 99. **Against a competent scraper the honest figure is 1.9x**, and it is
 not uniform:
 
 | Vertical | Pages | Raw HTML | Extracted text | AgenticSchema | vs text |
@@ -44,16 +44,24 @@ not uniform:
 | reference | 50 | 62,731 | 3,699 | 208 | 18x |
 | news | 25 | 90,530 | 882 | 528 | 1.7x |
 | ecommerce | 75 | 240,151 | 2,912 | 1,843 | 1.6x |
-| recipe | 25 | 58,416 | 1,031 | **5,395** | **0.2x** |
+| recipe | 25 | 58,454 | 1,549 | **3,787** | **0.4x** |
 | book | 2 | 287,454 | 11,534 | 191 | 61x |
 
-**On recipes the library loses, and loses badly: five times more tokens than simply sending the
-text.** A recipe's structured data is the recipe — every ingredient, every step, every timing —
-so the tools re-emit as JSON what the page already said in prose, and JSON is the more expensive
-of the two encodings. Reference pages sit at the other extreme, 18x, because a Wikipedia article
-is enormous and its markup describes it in a sentence.
+**On recipes the library loses: more than twice the tokens of simply sending the text.** A
+recipe's structured data is the recipe — every ingredient, every step, every timing, plus a
+nutrition block — so the tools re-emit as JSON what the page already said in prose, and JSON is
+the more expensive of the two encodings. Reference pages sit at the other extreme, 18x, because a
+Wikipedia article is enormous and its markup describes it in a sentence.
 
 Book is two pages. It is in the table for completeness and means nothing.
+
+That recipe row was wrong once, and how it was wrong is worth keeping. The first seed was
+`marmiton.org/recettes/*`, which matched category indexes and editorial pages: not one of those
+25 pages carried a `Recipe`, and the explanation published here described ingredients and steps
+that were not on them. Narrowing the seed to `recettes/recette_*` put real recipes in, the loss
+survived at 0.4x, and only then did the explanation become true. Twelve of the 25 still carry
+`Recipe` and the rest remain editorial, which pulls the vertical's average toward the cheap end —
+so the regression on a page that is only a recipe is worse than 0.4x, not better.
 
 ### What this measures, and what it does not
 
@@ -67,7 +75,7 @@ on prose and markup, which is close enough for a ratio and not close enough to q
 
 The "extracted text" arm is script, style, noscript and template elements removed, then
 `textContent`, then whitespace collapsed. That is roughly what a readability-style scraper
-produces. A better scraper would do better, which would narrow the 1.6x further.
+produces. A better scraper would do better, which would narrow the 1.9x further.
 
 ---
 
@@ -195,7 +203,8 @@ Both are closed now. The Window is constructed with JavaScript evaluation, scrip
 stylesheet loading, iframe loading and image loading all disabled, and with bounded timers. A
 fetch interceptor sits underneath as a tripwire: it records any request that still gets through,
 and the suite asserts per page that it recorded none. The measurements did not move — the same
-143,765 / 2,679 / 1,678 tokens before and after — so the leak was never distorting the numbers,
+143,765 / 2,679 / 1,678 tokens before and after, on the corpus as it stood then — so the leak was
+never distorting the numbers,
 only paying for them with other people's bandwidth.
 
 The lesson generalises past this repository: closing one path to the network says nothing about

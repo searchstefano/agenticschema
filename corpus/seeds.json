@@ -16,7 +16,7 @@
     { "vertical": "ecommerce", "pattern": "www.backcountry.com/*", "pages": 25 },
     { "vertical": "ecommerce", "pattern": "www.patagonia.com/product/*", "pages": 25 },
     { "vertical": "news", "pattern": "www.aljazeera.com/news/*", "pages": 25 },
-    { "vertical": "recipe", "pattern": "www.marmiton.org/recettes/*", "pages": 25 },
+    { "vertical": "recipe", "pattern": "www.marmiton.org/recettes/recette_*", "pages": 25 },
     { "vertical": "reference", "pattern": "developer.mozilla.org/en-US/docs/Web/*", "pages": 25 },
     { "vertical": "reference", "pattern": "en.wikipedia.org/wiki/*", "pages": 25 },
     { "vertical": "book", "pattern": "www.goodreads.com/book/show/*", "pages": 10 }
@@ -40,6 +40,7 @@
     { "pattern": "www.epicurious.com/recipes/*", "reason": "no captures" },
     { "pattern": "www.delish.com/cooking/*", "reason": "no captures" },
     { "pattern": "www.chefkoch.de/rezepte/*", "reason": "no captures" },
-    { "pattern": "www.foodnetwork.com/recipes/*", "reason": "no captures" }
+    { "pattern": "www.foodnetwork.com/recipes/*", "reason": "no captures" },
+    { "pattern": "www.marmiton.org/recettes/*", "reason": "too broad: it matched category indexes and editorial pages, which carry NewsMediaOrganization and no Recipe at all. Narrowed to recettes/recette_*, which is the recipes themselves" }
   ]
 }
