@@ -15,9 +15,12 @@
     "build": "npm run build -w @agenticschema/core -w @agenticschema/profiles -w @agenticschema/browser -w @agenticschema/server",
     "test": "vitest run",
     "test:watch": "vitest",
+    "test:corpus": "vitest run --config vitest.corpus.config.ts",
     "typecheck": "tsc --noEmit --pretty",
     "size": "node scripts/check-size.mjs",
-    "corpus:fetch": "node scripts/fetch-corpus.mjs",
+    "corpus:fetch": "node scripts/corpus/fetch.mjs",
+    "corpus:report": "node scripts/corpus/report.mjs",
+    "corpus:fetch:jsonld": "node scripts/fetch-corpus.mjs",
     "changeset": "changeset",
     "version-packages": "changeset version && npm install --package-lock-only",
     "release": "npm run build && changeset publish"

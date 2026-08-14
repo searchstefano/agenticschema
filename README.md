@@ -819,6 +819,52 @@ Sites were picked for their licensing, not their fame. Wikipedia and Open Food F
 publish under open licences and permit automated access; plenty of better-known sites forbid
 it in their terms, and pointing this tool at them is on you.
 
+### Measured on 177 real pages
+
+Those two examples are illustrations. The table below is a measurement, taken over 177 pages
+pulled from a Common Crawl snapshot — shops, news, recipes, reference, books — each one run
+through the pipeline in full. Tokens per page, averaged, counted with `o200k_base`:
+
+| What the model reads | Tokens | vs raw HTML | vs extracted text |
+| --- | ---: | ---: | ---: |
+| Raw HTML, as served | 143,765 | — | — |
+| Extracted text, what a competent scraper sends | 2,679 | 54x | — |
+| AgenticSchema tool output | 1,678 | **86x** | **1.6x** |
+
+The 86x is the number that looks good in a headline and it is the wrong one to quote. Nobody
+serious feeds raw HTML to a model: a scraper strips the markup first, and that one step accounts
+for 54 of the 86. **Against a competent scraper the honest figure is 1.6x**, and it is not
+uniform:
+
+| Vertical | Pages | Extracted text | AgenticSchema | vs text |
+| --- | ---: | ---: | ---: | ---: |
+| reference | 50 | 3,699 | 208 | 18x |
+| news | 25 | 882 | 528 | 1.7x |
+| ecommerce | 75 | 2,912 | 1,843 | 1.6x |
+| recipe | 25 | 1,031 | **5,395** | **0.2x** |
+
+On recipes the library **loses**, at five times the cost of sending the text. A recipe's
+structured data is the recipe — every ingredient, every step, every timing — so the tools re-emit
+in JSON what the page already said in prose, and JSON is the more expensive encoding. That is a
+gap in the design, not a bug, and nothing in the library currently notices it.
+
+Two things the table does not say. It is a size measurement, not a quality one: it counts what an
+agent has to read, not whether it answers better, which tool it picks, or how many calls it takes.
+And the corpus is curated from sites that publish good Schema.org, so every number means "where
+the markup exists and is done well" rather than "the web".
+
+Build it and check the numbers yourself:
+
+```bash
+npm run corpus:fetch    # from Common Crawl; no requests to the sites themselves
+npm run corpus:report   # what the pages contain
+npm run test:corpus     # what the pipeline makes of them
+```
+
+Method, type census, the three defects it caught, and the verticals it cannot reach at all are in
+[docs/corpus.md](docs/corpus.md). No page content and no page list is committed to this
+repository: only the seed recipe and the aggregate numbers.
+
 ---
 
 
@@ -1026,15 +1072,33 @@ The mapping layer from Schema.org to MCP is the part that did not exist.
 
 ```bash
 npm install
-npm test          # 100 tests, including a corpus captured from real pages
+npm test          # 156 tests over synthetic fixtures, in a couple of seconds
 npm run typecheck
 npm run build
 npm run size      # fails if the script-tag build has an import a browser cannot
                   # resolve, or goes over 30 KB gzip
 ```
 
-`npm run corpus:fetch` refreshes the real-page fixtures.
+The corpus of real pages is a separate command, because half a megabyte of markup per page is
+minutes rather than seconds and `npm test` has to stay quick enough to run on every save:
+
+```bash
+npm run corpus:fetch    # build it from Common Crawl into fixtures/local (untracked)
+npm run corpus:report   # what the pages contain
+npm run test:corpus     # the pipeline against all of them
+```
+
+`test:corpus` reports sizes in bytes on its own. The token columns need a tokenizer, which is
+deliberately not a dependency of this repository: it weighs 55 MB installed, for one measurement
+in one optional suite, and cloning this project to fix a typo should not cost that. Ask for it
+when you want it, and the suite picks it up:
+
+```bash
+npm install --no-save gpt-tokenizer
+```
+
 `npm run build:hierarchy -w @agenticschema/profiles` regenerates the Schema.org type hierarchy.
+`npm run corpus:fetch:jsonld` is the older fetcher, which pulls JSON-LD from three live pages.
 
 Contributions welcome. See [CONTRIBUTING.md](CONTRIBUTING.md) and
 [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md).
