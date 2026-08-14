@@ -145,3 +145,62 @@ describe('browser adapter', () => {
     expect(api.live.size).toBe(0);
   });
 });
+
+// ---------------------------------------------------------------------------
+
+describe('diagnostics', () => {
+  /** A trailing comma, which is what most of the broken JSON-LD on the web looks like. */
+  const BROKEN = '{ "@context": "https://schema.org", "@type": "Product", }';
+
+  const setBlocks = (...blocks: string[]): void => {
+    document.body.innerHTML = blocks
+      .map((b) => `<script type="application/ld+json">${b}</script>`)
+      .join('');
+  };
+
+  it('reports what the pipeline saw, not just the tools it produced', async () => {
+    setBlocks(BROKEN, PRODUCT);
+    const api = fakeModelContext();
+    handle = await start({ document, modelContext: api, watch: false });
+
+    expect(handle.diagnostics().map((d) => d.code)).toContain('json-parse-error');
+    // The broken block must not cost the page its tools.
+    expect(handle.tools()).toHaveLength(2);
+  });
+
+  it('says nothing about a page that parsed cleanly', async () => {
+    setPage(PRODUCT);
+    const api = fakeModelContext();
+    handle = await start({ document, modelContext: api, watch: false });
+
+    expect(handle.diagnostics()).toEqual([]);
+  });
+
+  it('replaces the diagnostics on refresh rather than piling them up', async () => {
+    setBlocks(BROKEN);
+    const api = fakeModelContext();
+    handle = await start({ document, modelContext: api, watch: false });
+    expect(handle.diagnostics().map((d) => d.code)).toContain('json-parse-error');
+
+    setPage(PRODUCT);
+    await handle.refresh();
+    expect(handle.diagnostics().map((d) => d.code)).not.toContain('json-parse-error');
+  });
+
+  it('goes quiet after stop(), the way the tool list does', async () => {
+    setBlocks(BROKEN);
+    const api = fakeModelContext();
+    handle = await start({ document, modelContext: api, watch: false });
+    expect(handle.diagnostics().length).toBeGreaterThan(0);
+
+    handle.stop();
+    expect(handle.diagnostics()).toEqual([]);
+  });
+
+  it('reports none from the inert handle, having run no pipeline at all', async () => {
+    setPage(PRODUCT);
+    // No modelContext injected and no global document.modelContext either.
+    handle = await start({ document, watch: false });
+    expect(handle.diagnostics()).toEqual([]);
+  });
+});

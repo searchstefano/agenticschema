@@ -1,4 +1,10 @@
-import { extract, toTools, type PipelineOptions, type ToolDescriptor } from '@agenticschema/core';
+import {
+  extract,
+  toTools,
+  type Diagnostic,
+  type PipelineOptions,
+  type ToolDescriptor,
+} from '@agenticschema/core';
 
 /**
  * The slice of WebMCP this adapter needs.
@@ -33,6 +39,13 @@ export interface StartOptions extends PipelineOptions {
 export interface Handle {
   /** The tools currently registered. */
   tools(): readonly ToolDescriptor[];
+  /**
+   * What the pipeline noticed on the way from markup to tools: blocks it could
+   * not parse, actions it refused, fields it truncated. The tool list alone
+   * cannot tell you why something is missing, and missing is the failure mode
+   * that matters here.
+   */
+  diagnostics(): readonly Diagnostic[];
   /** Remap the page now. Does nothing if the markup has not changed. */
   refresh(): Promise<void>;
   /** Unregister everything and stop watching. */
@@ -104,7 +117,7 @@ export async function start(options: StartOptions = {}): Promise<Handle> {
       '[agenticschema] no WebMCP surface available: document.modelContext is missing and ' +
         'the polyfill did not load. No tools registered.'
     );
-    return { tools: () => [], refresh: async () => {}, stop: () => {} };
+    return { tools: () => [], diagnostics: () => [], refresh: async () => {}, stop: () => {} };
   }
   // Rebound after the guard: the narrowing does not survive into the closures.
   const api: ModelContext = resolved;
@@ -114,6 +127,7 @@ export async function start(options: StartOptions = {}): Promise<Handle> {
 
   let controller: AbortController | undefined;
   let registered: ToolDescriptor[] = [];
+  let reported: Diagnostic[] = [];
   let lastSnapshot = '';
   let stopped = false;
 
@@ -139,6 +153,9 @@ export async function start(options: StartOptions = {}): Promise<Handle> {
       ...(baseUrl ? { baseUrl } : {}),
     });
     registered = result.tools;
+    // Replaced, never appended: these describe the page as it is now, and a
+    // single-page app remaps on every route change.
+    reported = result.diagnostics;
 
     for (const tool of result.tools) {
       // Not awaited. The registerTool promise is not on the critical path, and an
@@ -162,11 +179,13 @@ export async function start(options: StartOptions = {}): Promise<Handle> {
 
   return {
     tools: () => registered,
+    diagnostics: () => reported,
     refresh,
     stop: () => {
       stopped = true;
       controller?.abort();
       registered = [];
+      reported = [];
       for (const off of teardown) off();
     },
   };

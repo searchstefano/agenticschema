@@ -531,6 +531,7 @@ const handle = await start({
 });
 
 handle.tools();         // ToolDescriptor[]: what is currently registered
+handle.diagnostics();   // Diagnostic[]: what the pipeline skipped, and why
 await handle.refresh(); // remap now; a no-op if the markup has not changed
 handle.stop();          // unregister everything and stop watching
 ```
@@ -551,11 +552,12 @@ handle.stop();          // unregister everything and stop watching
 ### The returned `Handle`
 
 
-| Member      | Returns                     | Notes                                                                                              |
-| ----------- | --------------------------- | -------------------------------------------------------------------------------------------------- |
-| `tools()`   | `readonly ToolDescriptor[]` | What is registered right now.                                                                      |
-| `refresh()` | `Promise<void>`             | Remaps immediately. Compares a fingerprint of the markup, so it does nothing when nothing changed. |
-| `stop()`    | `void`                      | Aborts every registration and detaches the watchers.                                               |
+| Member          | Returns                     | Notes                                                                                                          |
+| --------------- | --------------------------- | ---------------------------------------------------------------------------------------------------------------- |
+| `tools()`       | `readonly ToolDescriptor[]` | What is registered right now.                                                                                  |
+| `diagnostics()` | `readonly Diagnostic[]`     | Why the rest is not: unparsable blocks, actions refused, fields truncated. Replaced on every remap, not appended. |
+| `refresh()`     | `Promise<void>`             | Remaps immediately. Compares a fingerprint of the markup, so it does nothing when nothing changed.              |
+| `stop()`        | `void`                      | Aborts every registration and detaches the watchers. `tools()` and `diagnostics()` both go empty.               |
 
 
 
@@ -979,8 +981,6 @@ adapter looks for `data-agenticschema` or an `src` containing `agenticschema`. A
 build under an unrelated filename and without the marker matches neither, and its options are
 ignored in silence.
 - `get_search_action` is a read tool over an action's own definition, of no use to an agent.
-- `start()` surfaces no diagnostics. The browser adapter drops the array; call `toTools()`
-directly to see it.
 - WebMCP has no `unregisterTool`, so every remap aborts and re-registers the whole batch.
 - Actions need an origin. Headless use with neither `baseUrl` nor `pageOrigin` silently produces
 no action tools.
