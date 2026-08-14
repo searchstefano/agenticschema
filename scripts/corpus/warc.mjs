@@ -12,6 +12,9 @@ import { gunzipSync } from 'node:zlib';
 const CRLFCRLF = Buffer.from('\r\n\r\n');
 const LFLF = Buffer.from('\n\n');
 
+/** 64 MB. No page is this big; a decompression bomb is. */
+const MAX_DECOMPRESSED = 64 * 1024 * 1024;
+
 /**
  * The first blank line at or after `from`. CRLF is what the spec says and what
  * Common Crawl writes; bare LF turns up anyway in records whose origin server
@@ -78,7 +81,12 @@ export function parseWarcRecord(bytes) {
 
   let payload = buf.subarray(second.next);
   if (/gzip/i.test(headerValue(httpHeader, 'Content-Encoding') ?? '')) {
-    payload = gunzipSync(payload);
+    // The range request bounds how many COMPRESSED bytes arrive; it says nothing
+    // about what they expand to. A crafted record could ask for gigabytes of
+    // memory out of a few kilobytes on the wire, so the ceiling is set here.
+    // The heaviest page in the corpus is a little over a megabyte, which leaves
+    // this cap generous by a factor of fifty.
+    payload = gunzipSync(payload, { maxOutputLength: MAX_DECOMPRESSED });
   }
 
   const contentType = headerValue(httpHeader, 'Content-Type') ?? '';

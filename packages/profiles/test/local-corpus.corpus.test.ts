@@ -45,6 +45,36 @@ const corpus: LockPage[] = (() => {
 const MCP_TOOL_NAME = /^[a-zA-Z0-9_-]{1,64}$/;
 
 /**
+ * happy-dom reaches out to the network by default, and on real pages that is not
+ * a trickle. The corpus references 3,269 stylesheets across its 177 pages, and
+ * with `disableCSSFileLoading` left at its default every run fetched all of them
+ * from ikea.com, aljazeera.com, marmiton.org and the rest — thousands of live
+ * requests against the very sites this corpus exists to avoid touching. Reading
+ * pages out of Common Crawl bought nothing while the DOM went out of the back
+ * door.
+ *
+ * So everything a page can reach for is off, and the timer bounds are set too:
+ * inline scripts are not evaluated today, but nothing about that is guaranteed
+ * by a default, and an unbounded interval inside the suite is a hung run.
+ */
+const OFFLINE = {
+  disableJavaScriptEvaluation: true,
+  disableJavaScriptFileLoading: true,
+  disableCSSFileLoading: true,
+  disableIframePageLoading: true,
+  enableImageFileLoading: false,
+  // Otherwise every blocked resource is reported as a load error, and a page
+  // with two hundred of them buries anything worth reading.
+  handleDisabledFileLoadingAsSuccess: true,
+  timer: {
+    maxTimeout: 1_000,
+    maxIntervalTime: 1_000,
+    maxIntervalIterations: 10,
+    preventTimerLoops: true,
+  },
+} as const;
+
+/**
  * The tokenizer is deliberately NOT a dependency of this repository.
  *
  * It weighs 55 MB installed, for one measurement in one optional suite, and
@@ -103,7 +133,28 @@ describe.skipIf(corpus.length === 0)('corpus reale', () => {
   for (const page of corpus) {
     it(page.file, async () => {
       const html = readFileSync(join(PAGES, page.file), 'utf8');
-      const window = new Window({ url: page.url });
+
+      // The tripwire. With everything above disabled nothing should ever reach
+      // this, so anything it records is a route out that a setting failed to
+      // close — and the assertion below names the url rather than letting the
+      // run go quietly online again.
+      const leaked: string[] = [];
+      let window!: Window;
+      window = new Window({
+        url: page.url,
+        settings: {
+          ...OFFLINE,
+          fetch: {
+            interceptor: {
+              beforeAsyncRequest: async ({ request }: { request: { url: string } }) => {
+                leaked.push(request.url);
+                return new window.Response('', { status: 204 });
+              },
+            },
+          },
+        },
+      });
+
       try {
         window.document.write(html);
         const doc = window.document as unknown as Document;
@@ -160,6 +211,10 @@ describe.skipIf(corpus.length === 0)('corpus reale', () => {
         for (const destination of attempted) {
           expect(new URL(destination).host).toBe(new URL(page.url).host);
         }
+
+        // Nothing left this machine. Asserted per page rather than once at the
+        // end, so a failure names the page that opened the route.
+        expect(leaked).toEqual([]);
 
         // The scraper baseline, taken only now: stripping the scripts earlier
         // would have thrown away the JSON-LD the pipeline just read.

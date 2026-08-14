@@ -86,6 +86,19 @@ describe('parseWarcRecord', () => {
     expect(() => parseWarcRecord(req)).toThrow(/request/);
   });
 
+  it('refuses to expand a payload past the ceiling', () => {
+    // 128 MB of zeroes compresses to a few hundred kilobytes. The range request
+    // bounds what arrives on the wire and says nothing about what it becomes,
+    // so the ceiling is the only thing standing between a crafted record and
+    // the machine's memory.
+    const bomb = gzipSync(Buffer.alloc(128 * 1024 * 1024));
+    expect(() =>
+      parseWarcRecord(
+        record({ headers: { 'Content-Type': 'text/html', 'Content-Encoding': 'gzip' }, body: bomb })
+      )
+    ).toThrow();
+  });
+
   it('refuses a record with no HTTP header block', () => {
     const truncated = Buffer.from('WARC/1.0\r\nWARC-Type: response\r\n', 'latin1');
     expect(() => parseWarcRecord(truncated)).toThrow();

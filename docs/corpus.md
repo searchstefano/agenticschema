@@ -174,12 +174,32 @@ harder.
 All three surfaced on the first run against real pages, before a single token was spent on an
 agent.
 
-**The corpus test was firing real HTTP at every site in it.** Action tools call `fetch` when
-executed, and the suite executed every tool of every page. A corpus chosen specifically to avoid
-touching other people's servers was hammering marmiton.org and ikea.com on every run. Fixed by
-injecting `fetchImpl`, which also turned the problem into an asset: the stub records where each
-tool tried to go, so the suite now asserts, against 177 pages of real `potentialAction` markup,
-that no generated tool reaches beyond its page's own host.
+**The corpus test was firing real HTTP at every site in it — twice over, by two separate
+routes.** This one is worth reading in full, because the first fix was declared complete and was
+not.
+
+The first route was the tools themselves. Action tools call `fetch` when executed, and the suite
+executed every tool of every page, so a corpus chosen specifically to avoid touching other
+people's servers was calling marmiton.org and ikea.com on every run. Injecting `fetchImpl` closed
+it, and turned the problem into an asset: the stub records where each tool tried to go, so the
+suite now asserts, against 177 pages of real `potentialAction` markup, that no generated tool
+reaches beyond its page's own host.
+
+The second route was the DOM, and it went unnoticed while the first was being written up as
+solved. happy-dom loads external resources by default — `disableCSSFileLoading` is `false` — and
+these pages reference **3,269 stylesheets** between them. Every run pulled all of them from the
+live sites. Reading pages out of Common Crawl bought nothing while the parser went out of the
+back door, at roughly a thousand times the volume of the leak that had just been fixed.
+
+Both are closed now. The Window is constructed with JavaScript evaluation, script loading,
+stylesheet loading, iframe loading and image loading all disabled, and with bounded timers. A
+fetch interceptor sits underneath as a tripwire: it records any request that still gets through,
+and the suite asserts per page that it recorded none. The measurements did not move — the same
+143,765 / 2,679 / 1,678 tokens before and after — so the leak was never distorting the numbers,
+only paying for them with other people's bandwidth.
+
+The lesson generalises past this repository: closing one path to the network says nothing about
+the others, and "no requests go out" is a claim to be asserted in a test, not asserted in prose.
 
 **An assertion that was wrong about the library's own contract.** The suite demanded parseable
 JSON from every tool. Action tools return the site endpoint's raw response, which for a search box

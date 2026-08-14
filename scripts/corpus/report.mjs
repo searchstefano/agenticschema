@@ -16,46 +16,13 @@
 import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { FURNITURE, typesIn } from './types.mjs';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
 const LOCK = join(ROOT, 'corpus', 'corpus.lock.json');
 const OUT = join(ROOT, 'packages', 'core', 'test', 'fixtures', 'local');
 
-/** Types that describe the page's chrome rather than its subject. */
-const FURNITURE = new Set([
-  'WebSite',
-  'WebPage',
-  'Organization',
-  'BreadcrumbList',
-  'ListItem',
-  'SiteNavigationElement',
-  'CollectionPage',
-  'ItemList',
-  'ImageObject',
-  'SearchAction',
-  'ReadAction',
-]);
-
 const LD_JSON = /<script[^>]*type=["']application\/ld\+json["'][^>]*>([\s\S]*?)<\/script\s*>/gi;
-
-/** Every `@type` in a blob, however deeply it is buried and however it is spelled. */
-function typesIn(value, found = new Set()) {
-  if (Array.isArray(value)) {
-    for (const item of value) typesIn(item, found);
-    return found;
-  }
-  if (!value || typeof value !== 'object') return found;
-  for (const [key, inner] of Object.entries(value)) {
-    if (key === '@type') {
-      for (const t of Array.isArray(inner) ? inner : [inner]) {
-        if (typeof t === 'string') found.add(t.replace(/^.*[/#:]/, ''));
-      }
-    } else {
-      typesIn(inner, found);
-    }
-  }
-  return found;
-}
 
 const pad = (s, n) => String(s).padEnd(n);
 const bar = (n, max, width = 24) => '█'.repeat(Math.max(1, Math.round((n / max) * width)));

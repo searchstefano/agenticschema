@@ -20,7 +20,7 @@
  */
 import { createHash } from 'node:crypto';
 import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { gunzipSync } from 'node:zlib';
 import { cdxUrl, parseCdxLines, selectRecords } from './cdx.mjs';
@@ -124,10 +124,22 @@ const seeds = config.seeds.filter((s) => !onlyVertical || s.vertical === onlyVer
 const pages = [];
 const failures = [];
 for (const vertical of new Set(seeds.map((s) => s.vertical))) {
+  // Two guards before a recursive delete, because `vertical` comes out of a
+  // JSON file and ends up in a path. The shape check rejects the obvious
+  // `../..`; the containment check is what actually holds, since it survives
+  // any spelling of an escape the first one failed to imagine.
+  if (!/^[a-z0-9][a-z0-9-]*$/.test(vertical)) {
+    throw new Error(`vertical "${vertical}" is not a plain name: refusing to touch that path`);
+  }
+  const dir = resolve(OUT, vertical);
+  if (dirname(dir) !== resolve(OUT)) {
+    throw new Error(`"${vertical}" resolves to ${dir}, outside the corpus directory`);
+  }
+
   // Only the directories this script owns. A `*.jsonld.json` left by the older
   // fetch-corpus script is someone's local state and stays where it is.
-  rmSync(join(OUT, vertical), { recursive: true, force: true });
-  mkdirSync(join(OUT, vertical), { recursive: true });
+  rmSync(dir, { recursive: true, force: true });
+  mkdirSync(dir, { recursive: true });
 }
 
 console.log(`crawl ${config.crawl}, ${seeds.length} seed\n`);
