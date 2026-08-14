@@ -15,6 +15,14 @@ export default defineConfig({
   },
   test: {
     environment: 'node',
-    include: ['packages/*/test/**/*.test.ts'],
+    // The corpus tooling lives in `scripts/`, outside any package, and is plain
+    // JS: it is build-time machinery, not shipped code. Its pure parts are
+    // tested here all the same, because a corpus you make claims about cannot
+    // rest on an untested parser.
+    include: ['packages/*/test/**/*.test.ts', 'scripts/**/*.test.mjs'],
+    // Real pages are heavy: hundreds of them through happy-dom is minutes, not
+    // seconds, and the default suite has to stay quick enough to run on every
+    // save. `npm run test:corpus` is where those live.
+    exclude: ['**/node_modules/**', '**/dist/**', '**/*.corpus.test.ts'],
   },
 });

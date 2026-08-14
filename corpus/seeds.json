@@ -1,0 +1,45 @@
+{
+  "_comment": [
+    "Which pages the corpus is built from. Addresses only: no page content lives in this repo.",
+    "The sample is curated by vertical, so it measures the ceiling rather than the average.",
+    "These are sites that publish good Schema.org, and results drawn from it should be read",
+    "as 'where the markup exists and is done well', never as 'the web'.",
+    "",
+    "Domains absent from Common Crawl are listed under `absent` rather than deleted: their",
+    "absence is a finding. A site that turns away a crawler turns away Common Crawl too,",
+    "because the same robots.txt governs both, and those are the verticals this corpus cannot",
+    "reach at all."
+  ],
+  "crawl": "CC-MAIN-2026-30",
+  "seeds": [
+    { "vertical": "ecommerce", "pattern": "www.ikea.com/it/it/p/*", "pages": 25 },
+    { "vertical": "ecommerce", "pattern": "www.backcountry.com/*", "pages": 25 },
+    { "vertical": "ecommerce", "pattern": "www.patagonia.com/product/*", "pages": 25 },
+    { "vertical": "news", "pattern": "www.aljazeera.com/news/*", "pages": 25 },
+    { "vertical": "recipe", "pattern": "www.marmiton.org/recettes/*", "pages": 25 },
+    { "vertical": "reference", "pattern": "developer.mozilla.org/en-US/docs/Web/*", "pages": 25 },
+    { "vertical": "reference", "pattern": "en.wikipedia.org/wiki/*", "pages": 25 },
+    { "vertical": "book", "pattern": "www.goodreads.com/book/show/*", "pages": 10 }
+  ],
+  "absent": [
+    { "pattern": "www.booking.com/hotel/*", "reason": "no captures: robots.txt keeps Common Crawl out, as it keeps a direct fetch out" },
+    { "pattern": "www.yelp.com/biz/*", "reason": "no captures, same cause" },
+    { "pattern": "www.allrecipes.com/recipe/*", "reason": "no captures, same cause" },
+    { "pattern": "www.imdb.com/title/*", "reason": "no captures" },
+    { "pattern": "www.eventbrite.com/e/*", "reason": "no captures" },
+    { "pattern": "www.bbc.com/news/articles/*", "reason": "no captures; www.bbc.com/* has captures but none that are 200 text/html" },
+    { "pattern": "www.theguardian.com/world/*", "reason": "no captures; theguardian.com/* likewise has nothing usable" },
+    { "pattern": "apnews.com/article/*", "reason": "no captures" },
+    { "pattern": "www.reuters.com/*", "reason": "no captures" },
+    { "pattern": "www.cnn.com/2026/*", "reason": "no captures" },
+    { "pattern": "www.dw.com/en/*", "reason": "no captures" },
+    { "pattern": "www.bbcgoodfood.com/recipes/*", "reason": "no captures" },
+    { "pattern": "www.simplyrecipes.com/recipes/*", "reason": "no captures" },
+    { "pattern": "www.seriouseats.com/recipes/*", "reason": "no captures" },
+    { "pattern": "www.food.com/recipe/*", "reason": "no captures" },
+    { "pattern": "www.epicurious.com/recipes/*", "reason": "no captures" },
+    { "pattern": "www.delish.com/cooking/*", "reason": "no captures" },
+    { "pattern": "www.chefkoch.de/rezepte/*", "reason": "no captures" },
+    { "pattern": "www.foodnetwork.com/recipes/*", "reason": "no captures" }
+  ]
+}

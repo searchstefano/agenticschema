@@ -11,5 +11,12 @@ spike/node_modules/
 packages/core/test/fixtures/local/*
 !packages/core/test/fixtures/local/.gitkeep
 
+# The build output of the corpus, which lists every page it collected: urls,
+# WARC offsets, hashes. Addresses rather than content, but still a record of
+# other people's sites, and there is no reason for it to live here. What is
+# committed is the recipe — corpus/seeds.json — and the aggregate numbers, in
+# README.md and docs/corpus.md. Nothing per-page.
+corpus/corpus.lock.json
+
 # May hold a registry token.
 .npmrc
