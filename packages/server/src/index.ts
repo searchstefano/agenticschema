@@ -197,9 +197,39 @@ async function fetchHtml(
   return response.text();
 }
 
-/** happy-dom gives a real DOM, so microdata and RDFa work here. From a string they do not. */
+/**
+ * happy-dom gives a real DOM, so microdata and RDFa work here. From a string they do not.
+ *
+ * Every route out of the DOM is closed. happy-dom loads external resources by
+ * default, and the urls it loads come from the page: a `<link>` or an `<iframe>`
+ * is enough to make this process issue a request, to wherever the markup says.
+ * On a server that is a request from inside the operator's network, link-local
+ * metadata addresses included, and it walks past every check the rest of this
+ * library applies before touching a destination.
+ *
+ * The timer bounds are here for the same reason. Script evaluation is off, so
+ * nothing should be scheduling anything, but a default is not a guarantee and an
+ * unbounded interval in a long-lived server never stops.
+ */
 export function parseDocument(html: string): Document {
-  const window = new Window();
+  const window = new Window({
+    settings: {
+      disableJavaScriptEvaluation: true,
+      disableJavaScriptFileLoading: true,
+      disableCSSFileLoading: true,
+      disableIframePageLoading: true,
+      enableImageFileLoading: false,
+      // Otherwise every blocked resource is reported as a load error, and a page
+      // with two hundred of them buries anything worth reading.
+      handleDisabledFileLoadingAsSuccess: true,
+      timer: {
+        maxTimeout: 1_000,
+        maxIntervalTime: 1_000,
+        maxIntervalIterations: 10,
+        preventTimerLoops: true,
+      },
+    },
+  });
   window.document.write(html);
   return window.document as unknown as Document;
 }

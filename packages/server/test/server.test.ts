@@ -1,3 +1,4 @@
+import { createServer as createHttpServer } from 'node:http';
 import { describe, expect, it } from 'vitest';
 import {
   Client,
@@ -321,5 +322,41 @@ describe('parseDocument', () => {
   it('produces a Document the pipeline can use', () => {
     const doc = parseDocument('<html><body><div itemscope itemtype="https://schema.org/Person"></div></body></html>');
     expect(doc.querySelectorAll('[itemscope]')).toHaveLength(1);
+  });
+
+  it('fetches nothing the page points at', async () => {
+    // The page decides these urls. A DOM that loads them turns every parsed page
+    // into a set of requests the operator never asked for, aimed wherever the
+    // markup says — link-local addresses included, on a server that sits inside
+    // a network. Everything else in this library vets a destination before
+    // touching it; the parser used to walk straight past all of it.
+    //
+    // Checked against a real socket rather than a stubbed `globalThis.fetch`.
+    // happy-dom loads resources through its own client, so stubbing the global
+    // proves nothing: that version of this test passed while the leak was still
+    // wide open.
+    const hits: string[] = [];
+    const origin = createHttpServer((req, res) => {
+      hits.push(req.url ?? '');
+      res.writeHead(200, { 'content-type': 'text/css' }).end('a{}');
+    });
+    await new Promise<void>((r) => origin.listen(0, '127.0.0.1', r));
+    const port = (origin.address() as { port: number }).port;
+    const base = `http://127.0.0.1:${port}`;
+
+    try {
+      const doc = parseDocument(
+        '<html><head>' +
+          `<link rel="stylesheet" href="${base}/app.css">` +
+          `<script src="${base}/app.js"></script>` +
+          `</head><body><img src="${base}/x.png">` +
+          `<iframe src="${base}/f.html"></iframe></body></html>`
+      );
+      expect(doc.querySelectorAll('link')).toHaveLength(1);
+      await new Promise((r) => setTimeout(r, 300));
+      expect(hits).toEqual([]);
+    } finally {
+      await new Promise<void>((r) => origin.close(() => r()));
+    }
   });
 });

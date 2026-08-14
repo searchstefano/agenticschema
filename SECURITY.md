@@ -40,6 +40,14 @@ These are enforced in `@agenticschema/core`, so both adapters inherit them, and 
 - **Context flooding.** Caps on tool count (default 24) and on returned payload size. Read tools
   and action tools share the one budget, so a page cannot get past it by publishing its flood as
   `potentialAction` instead of as entities.
+- **Requests made by the parser itself.** Reading a page server-side means building a DOM from it,
+  and a DOM engine loads what the markup points at unless told otherwise: a `<link href>` or an
+  `<iframe src>` is enough to make the process issue a request, to a url the page chose. On a
+  server that request originates inside the operator's network, link-local metadata addresses
+  included, and it would arrive underneath every check above. `parseDocument` disables script
+  evaluation, script, stylesheet, iframe and image loading, and bounds timers. The regression test
+  asserts against a real socket: happy-dom loads resources through its own client, so a test that
+  stubs `globalThis.fetch` passes while the leak is wide open.
 
 ## What it explicitly does NOT defend against
 
