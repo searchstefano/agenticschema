@@ -836,18 +836,18 @@ through the pipeline in full. Tokens per page, averaged, counted with `o200k_bas
 | --- | ---: | ---: | ---: |
 | Raw HTML, as served | 143,771 | — | — |
 | Extracted text, what a competent scraper sends | 2,752 | 52x | — |
-| AgenticSchema tool output | 1,451 | **99x** | **1.9x** |
+| AgenticSchema tool output | 1,440 | **100x** | **1.9x** |
 
-The 99x is the number that looks good in a headline and it is the wrong one to quote. Nobody
+The 100x is the number that looks good in a headline and it is the wrong one to quote. Nobody
 serious feeds raw HTML to a model: a scraper strips the markup first, and that one step accounts
-for 52 of the 99. **Against a competent scraper the honest figure is 1.9x**, and it is not
+for 52 of the 100. **Against a competent scraper the honest figure is 1.9x**, and it is not
 uniform:
 
 | Vertical | Pages | Extracted text | AgenticSchema | vs text |
 | --- | ---: | ---: | ---: | ---: |
 | reference | 50 | 3,699 | 208 | 18x |
 | news | 25 | 882 | 528 | 1.7x |
-| ecommerce | 75 | 2,912 | 1,843 | 1.6x |
+| ecommerce | 75 | 2,912 | 1,815 | 1.6x |
 | recipe | 25 | 1,549 | **3,787** | **0.4x** |
 
 On recipes the library **loses**, at more than twice the cost of sending the text. A recipe's
@@ -872,6 +872,63 @@ npm run test:corpus     # what the pipeline makes of them
 Method, type census, the three defects it caught, and the verticals it cannot reach at all are in
 [docs/corpus.md](docs/corpus.md). No page content and no page list is committed to this
 repository: only the seed recipe and the aggregate numbers.
+
+### Does an agent actually answer better?
+
+The table above is a size measurement. The next question is whether an agent *answers* better with
+the tools than with the page's text.
+
+An agent is asked five questions about a page, twice: once with the extracted text in the prompt
+and no tools, once with an MCP server built from the page's markup and no text. The same answers
+are then scored against two different keys, because one of them cannot answer the question. A key
+written from the rendered text alone puts a ceiling on the tools arm — its best possible result is
+repeating the prose — so a second key reads the text *and* what the page publishes as data, and
+counts a fact from either.
+
+Over **120 trials on 12 pages** with `sonnet`, in one verified configuration:
+
+| Referee | Text in the prompt | AgenticSchema tools |
+| --- | ---: | ---: |
+| Key written from the page text alone | 95% | 77% |
+| Key written from text and published data | 87% | 87% |
+| ...over the 11 pages that publish something to map | 85% | **89%** |
+
+The fair referee moves both arms — the tools arm up ten points, the text arm *down* eight, because
+facts carried only in the markup now count against whoever missed them. Set aside the pages that
+publish nothing at all, and the tools arm comes out **four points ahead**. It wins on recipes (+20)
+and on the two-part questions (+9, where prose scatters two facts across a page and a reader drops
+one of them); it loses on news, where one publisher credits the wire service in its byline and
+itself in its markup.
+
+It is not free, and what it costs depends on the page. The tools arm takes **2.2 turns against
+1.0**, because fetching on demand costs a call and an answer. But the text arm's context *is* the
+page, so it grows with the page: on this sample the two read within 1% of each other and the tools
+arm cost a third less, while on a sample of longer pages the text arm read less. **Turns are what
+one pays; page size is what the other pays.**
+
+It also depends on the model. Run the same cells with the arms on `haiku` and the result reverses —
+the text arm barely moves while the tools arm drops six points, because reading a page is easier
+than calling a tool. This library helps an agent good enough to use what it is handed.
+
+Reading every disagreement one at a time is what makes the number useful, and it found the same
+defect twice in mirror image — a `ProductGroup` keeping its price in `hasVariant[].offers`, and a
+variant keeping its rating in `isVariantOf.aggregateRating`. Both sat one hop from where the
+vocabulary suggests, both were invisible from the code, and following the path took the price
+questions from 8 of 11 to 11 of 11.
+
+Four points on 55 trials is two trials from a tie. Read it as "no longer behind, plausibly ahead"
+rather than as a headline — and note that a run four times the size said the same thing, in the
+same direction, before the library was fixed.
+
+```bash
+npm run bench:run -- --dry-run          # what it would cost, spending nothing
+npm run bench:run                       # 100 cells, one sitting
+npm run bench:run -- --arms tools --redo  # after a fix: re-run only what disagreed
+npm run bench:report                    # the tables, and the disagreements to read by hand
+```
+
+The full method, the isolation the harness enforces, and what the measurement does not cover are
+in [docs/bench.md](docs/bench.md).
 
 ---
 

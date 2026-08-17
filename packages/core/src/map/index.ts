@@ -62,9 +62,18 @@ export function mapToTools(graph: EntityGraph, options: MapOptions = {}): MapRes
     for (const spec of profile.read) {
       // `from` navigates to the entity, `pick` renders it inline inside the
       // parent. Either way it is already visible, so a tool of its own is a copy.
-      const properties = spec.from ? [spec.from] : (spec.pick ?? []);
+      // Every candidate, not only the one that will be used: where a page
+      // carries the fact twice, the profile shows one of them, and the other
+      // must not come back as a tool of its own saying the same thing.
+      //
+      // Everything along the path, not only where it ends: reaching a group's
+      // reviews through `isVariantOf` means the group is already represented,
+      // and leaving it unconsumed gave a variant page a second `get_product`, a
+      // second `get_product_variants` and a second `get_product_rating`, each
+      // word for word the description of the first.
+      const properties = spec.from ? candidatePaths(spec.from) : (spec.pick ?? []);
       for (const property of properties) {
-        for (const target of resolveTargets(graph, entity, property)) {
+        for (const target of entitiesAlong(graph, entity, property)) {
           if (target.id !== id) consumed.add(target.id);
         }
       }
@@ -206,7 +215,7 @@ function buildReadTool(
   usedNames: Set<string>
 ): ToolDescriptor | undefined {
   // `from` follows a reference property. No property, no tool.
-  const targets = spec.from ? resolveTargets(graph, entity, spec.from) : [entity];
+  const targets = spec.from ? firstResolved(graph, entity, spec.from) : [entity];
   if (targets.length === 0) return undefined;
 
   const base = ['get', profile.slug, spec.name ? toSlug(spec.name) : '']
@@ -275,13 +284,102 @@ function buildGroupTool(
   };
 }
 
-function resolveTargets(graph: EntityGraph, entity: Entity, property: string): Entity[] {
-  const values = entity.props[property];
-  if (!values) return [];
-  return values
-    .filter(isRef)
-    .map((ref) => graph.nodes.get(ref.ref))
-    .filter((e): e is Entity => e !== undefined);
+/** The paths a spec offers, in the order it wants them tried. */
+const candidatePaths = (from: string | string[] | undefined): string[] =>
+  from === undefined ? [] : Array.isArray(from) ? from : [from];
+
+/**
+ * Walks a dotted path one reference hop at a time, handing back what it found
+ * at each hop.
+ *
+ * A single name is the ordinary case. The path exists because on real pages the
+ * fact an agent wants often sits one hop further down than the vocabulary
+ * suggests: a `ProductGroup` carries no `offers` of its own, and every price on
+ * the page is in `hasVariant.offers`. Without it, the tool that would answer
+ * "what does this cost" is never generated, and a shop page with thirteen prices
+ * in its markup tells an agent there are none.
+ *
+ * Every step is a reference hop, so a path cannot loop: its length bounds the
+ * walk whatever the graph does. Each hop deduplicates within itself, because the
+ * same offer reached through two variants is one offer and a group of thirteen
+ * colours at one price would otherwise return that price thirteen times.
+ *
+ * Within itself and not across hops, which is a distinction one refactor here
+ * got wrong. A shared `Offer` given an `@id` is normalised into the graph
+ * alongside the variants that point at it, so `hasVariant` finds the offer as
+ * well as the products; a walk that remembered it from the first hop then
+ * refused to arrive at it on the second, and the price tool disappeared. Hops
+ * are separate places, and an entity may legitimately be at two of them.
+ *
+ * Returns one array per hop it managed to take, so a caller can tell a path that
+ * arrived from one that ran out halfway. Two callers want different halves of
+ * that, and both live below rather than in a second copy of this walk.
+ */
+function walkPath(graph: EntityGraph, entity: Entity, path: string): Entity[][] {
+  const hops: Entity[][] = [];
+  let current: Entity[] = [entity];
+
+  for (const property of path.split('.')) {
+    const next: Entity[] = [];
+    const seen = new Set<string>();
+    for (const node of current) {
+      for (const value of node.props[property] ?? []) {
+        if (!isRef(value)) continue;
+        const target = graph.nodes.get(value.ref);
+        if (target && !seen.has(target.id)) {
+          seen.add(target.id);
+          next.push(target);
+        }
+      }
+    }
+    if (next.length === 0) return hops;
+    hops.push(next);
+    current = next;
+  }
+
+  return hops;
+}
+
+/** What a path shows: where it ends, and nothing at all unless it got there. */
+function resolveTargets(graph: EntityGraph, entity: Entity, path: string): Entity[] {
+  const hops = walkPath(graph, entity, path);
+  return hops.length === path.split('.').length ? (hops.at(-1) ?? []) : [];
+}
+
+/**
+ * What a path accounts for: everything it touched, the hops in between
+ * included. Repeats are harmless — every caller feeds this into a set.
+ *
+ * Reaching a group's rating through `isVariantOf` speaks for the group as well,
+ * and saying so is what keeps the group from being described a second time in
+ * the same words. It is a choice with a cost, and the cost is worth naming:
+ * anything else that intermediate carried stops being offered separately too.
+ * For the product profile that is the trade we want — a group's name is the
+ * product's name — but a profile whose intermediate holds something of its own
+ * should not reach through it.
+ */
+const entitiesAlong = (graph: EntityGraph, entity: Entity, path: string): Entity[] =>
+  walkPath(graph, entity, path).flat();
+
+/**
+ * The first candidate path that leads anywhere.
+ *
+ * Order is how a profile says which source it trusts: a variant's own
+ * `aggregateRating` before the group's, because the more specific one is what
+ * the page is about. Falling through only when the previous candidate found
+ * nothing is what stops a page carrying both from producing two tools with one
+ * description and no way to tell them apart.
+ */
+function firstResolved(
+  graph: EntityGraph,
+  entity: Entity,
+  from: string | string[] | undefined
+): Entity[] {
+  for (const path of candidatePaths(from)) {
+    const targets = resolveTargets(graph, entity, path);
+    if (targets.length > 0) return targets;
+  }
+  return [];
 }
 
 function uniqueName(base: string, used: Set<string>): string {

@@ -18,5 +18,16 @@ packages/core/test/fixtures/local/*
 # README.md and docs/corpus.md. Nothing per-page.
 corpus/corpus.lock.json
 
+# Benchmark output. Every answer key and every answer in there was derived from
+# a corpus page, so the directory is other people's content by another route,
+# and disagreements.md quotes it directly. What may be committed is the
+# aggregate: the tables in README.md and docs/bench.md, and the numbers in
+# corpus/bench-baselines.json.
+#
+# The trailing glob matters. A run under a different model or an older library
+# gets kept beside the current one — `bench-results-haiku`, `bench-results-v1` —
+# and each copy is every bit as much other people's content as the live one.
+bench-results*/
+
 # May hold a registry token.
 .npmrc

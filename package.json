@@ -3,7 +3,7 @@
   "version": "0.0.0",
   "private": true,
   "type": "module",
-  "description": "Converte lo Schema.org di una pagina in tool MCP, automaticamente.",
+  "description": "Turn the Schema.org markup a page already has into MCP tools an agent can call.",
   "license": "MIT",
   "workspaces": [
     "packages/*"
@@ -21,6 +21,8 @@
     "corpus:fetch": "node scripts/corpus/fetch.mjs",
     "corpus:report": "node scripts/corpus/report.mjs",
     "corpus:fetch:jsonld": "node scripts/fetch-corpus.mjs",
+    "bench:run": "node scripts/bench/run.mjs",
+    "bench:report": "node scripts/bench/report.mjs",
     "changeset": "changeset",
     "version-packages": "changeset version && npm install --package-lock-only",
     "release": "npm run build && changeset publish"

@@ -245,3 +245,145 @@ describe('toSlug', () => {
     }
   });
 });
+
+/**
+ * A fact one hop further down than the vocabulary suggests.
+ *
+ * `ProductGroup` is the case that forced this: the group node carries no
+ * `offers`, every price on the page sits under `hasVariant`, and a profile that
+ * can only name one property generates no price tool at all.
+ */
+describe('from, following a path', () => {
+  const withVariants: Profile = {
+    types: ['ProductGroup'],
+    slug: 'product',
+    read: [
+      { description: 'Il gruppo di prodotti.', pick: ['name'] },
+      { name: 'offer', from: 'offers', description: 'Prezzo del gruppo.' },
+      {
+        name: 'variant_offers',
+        from: 'hasVariant.offers',
+        list: true,
+        description: 'Prezzo di ogni variante.',
+        pick: ['price', 'priceCurrency'],
+      },
+    ],
+  };
+
+  const group = (variants: string) =>
+    graphOf(
+      `{"@context":"https://schema.org","@type":"ProductGroup","name":"Occhiali",` +
+        `"hasVariant":[${variants}]}`
+    );
+
+  const build = (graph: EntityGraph) => mapToTools(graph, { profiles: [withVariants] }).tools;
+
+  it('reaches a price two hops down, where one hop finds nothing', async () => {
+    const tools = build(
+      group(
+        '{"@type":"Product","sku":"A","offers":{"@type":"Offer","price":49.95,"priceCurrency":"USD"}},' +
+          '{"@type":"Product","sku":"B","offers":{"@type":"Offer","price":59.95,"priceCurrency":"USD"}}'
+      )
+    );
+
+    // The group has no `offers` of its own, so the one-hop tool is not built.
+    expect(tools.map((t) => t.name)).not.toContain('get_product_offer');
+
+    const variants = tools.find((t) => t.name === 'get_product_variant_offers');
+    expect(variants).toBeDefined();
+    expect(await run(variants!)).toEqual([
+      { type: 'Offer', price: 49.95, priceCurrency: 'USD' },
+      { type: 'Offer', price: 59.95, priceCurrency: 'USD' },
+    ]);
+  });
+
+  it('returns one offer once, however many variants point at it', async () => {
+    // Thirteen colours in one size share a single price node. Left
+    // undeduplicated, an agent is handed the same price thirteen times and has
+    // to work out for itself that they are one offer.
+    const tools = build(
+      group(
+        '{"@type":"Product","sku":"A","offers":{"@id":"#o"}},' +
+          '{"@type":"Product","sku":"B","offers":{"@id":"#o"}},' +
+          '{"@type":"Offer","@id":"#o","price":49.95,"priceCurrency":"USD"}'
+      )
+    );
+
+    const variants = tools.find((t) => t.name === 'get_product_variant_offers');
+    expect(await run(variants!)).toEqual([{ type: 'Offer', price: 49.95, priceCurrency: 'USD' }]);
+  });
+
+  it('builds no tool when a hop along the way is missing', () => {
+    // A group whose variants carry no offers has no prices to show, and a tool
+    // answering `{}` would be worse than an absent one: it says the page has a
+    // price and then does not give it.
+    const tools = build(group('{"@type":"Product","sku":"A"}'));
+    expect(tools.map((t) => t.name)).not.toContain('get_product_variant_offers');
+  });
+
+  const ratingCandidates: Profile = {
+    types: ['Product', 'ProductGroup'],
+    slug: 'product',
+    read: [
+      { description: 'Il prodotto.', pick: ['name'] },
+      {
+        name: 'rating',
+        from: ['aggregateRating', 'isVariantOf.aggregateRating'],
+        description: 'Voto medio.',
+      },
+    ],
+  };
+
+  const variantOf = (own: string) =>
+    graphOf(
+      '{"@context":"https://schema.org","@graph":[' +
+        `{"@type":"Product","name":"Zaino","isVariantOf":{"@id":"#g"}${own}},` +
+        '{"@type":"ProductGroup","@id":"#g","name":"Zaini",' +
+        '"aggregateRating":{"@type":"AggregateRating","ratingValue":4.4}}]}'
+    );
+
+  it('takes the first candidate that resolves, and only that one', async () => {
+    // A page carrying the fact in both places produced two tools with one
+    // description and no way to choose between them. Order is the profile
+    // saying which source it trusts.
+    const tools = mapToTools(
+      variantOf(',"aggregateRating":{"@type":"AggregateRating","ratingValue":4.9}'),
+      { profiles: [ratingCandidates] }
+    ).tools;
+
+    expect(tools.filter((t) => t.name.startsWith('get_product_rating'))).toHaveLength(1);
+    expect(await run(tools.find((t) => t.name === 'get_product_rating')!)).toMatchObject({
+      ratingValue: 4.9,
+    });
+  });
+
+  it('falls through to the next candidate when the first finds nothing', async () => {
+    const tools = mapToTools(variantOf(''), { profiles: [ratingCandidates] }).tools;
+    expect(await run(tools.find((t) => t.name === 'get_product_rating')!)).toMatchObject({
+      ratingValue: 4.4,
+    });
+  });
+
+  it('counts an entity a path passes through as already described', () => {
+    // Reaching the group's rating through `isVariantOf` speaks for the group
+    // too. Left unconsumed it came back as a tool of its own, word for word the
+    // description of the first.
+    const names = mapToTools(variantOf(''), { profiles: [ratingCandidates] }).tools.map(
+      (t) => t.name
+    );
+    expect(names.filter((n) => n.startsWith('get_product'))).toEqual([
+      'get_product',
+      'get_product_rating',
+    ]);
+  });
+
+  it('leaves a single-name from exactly as it was', async () => {
+    const graph = graphOf(
+      '{"@context":"https://schema.org","@type":"Product","name":"Zaino",' +
+        '"offers":{"@type":"Offer","price":129.9,"priceCurrency":"EUR"}}'
+    );
+    const tools = mapToTools(graph, { profiles: [productProfile] }).tools;
+    const offer = tools.find((t) => t.name === 'get_product_offer');
+    expect(await run(offer!)).toMatchObject({ price: 129.9, priceCurrency: 'EUR' });
+  });
+});

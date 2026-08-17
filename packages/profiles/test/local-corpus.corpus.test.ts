@@ -248,7 +248,10 @@ describe.skipIf(corpus.length === 0)('corpus reale', () => {
   afterAll(() => {
     if (totals.pages === 0) return;
     const out = (line: string) => process.stdout.write(`${line}\n`);
-    const per = (n: number) => Math.round(n / totals.pages).toLocaleString('it-IT');
+    // en-US grouping, to match the labels above and the tables in docs/corpus.md.
+    // Under it-IT the same figure prints as `143.771`, which an English reader
+    // takes for a fraction, and the document then disagreed with its own command.
+    const per = (n: number) => Math.round(n / totals.pages).toLocaleString('en-US');
     /**
      * One decimal below 10x. Rounding to whole numbers turned the one result
      * worth noticing — recipes, where the tools cost more than the plain text —
@@ -262,30 +265,30 @@ describe.skipIf(corpus.length === 0)('corpus reale', () => {
     const line = '─'.repeat(70);
 
     out(`\n${line}`);
-    out(`CORPUS  ${totals.pages} pagine reali, ${totals.tools} tool generati`);
+    out(`CORPUS  ${totals.pages} real pages, ${totals.tools} tools generated`);
     out(
-      `con almeno un tool: ${totals.withTools}/${totals.pages} ` +
+      `with at least one tool: ${totals.withTools}/${totals.pages} ` +
         `(${Math.round((totals.withTools / totals.pages) * 100)}%)`
     );
     if (!encode) {
       const kb = (n: number) => `${(n / 1024 / totals.pages).toFixed(1)} KB`;
-      out(`html medio per pagina      ${kb(totals.pageBytes)}`);
-      out(`output dei tool per pagina ${kb(totals.toolBytes)}`);
+      out(`mean html per page       ${kb(totals.pageBytes)}`);
+      out(`tool output per page     ${kb(totals.toolBytes)}`);
       out(line);
-      out('token non misurati. per le colonne in token:');
+      out('tokens not counted. for the token columns:');
       out('  npm install --no-save gpt-tokenizer');
       out(`${line}\n`);
       return;
     }
 
     out(line);
-    out('TOKEN PER PAGINA, media          token      vs grezzo   vs testo');
+    out('TOKENS PER PAGE, mean            tokens       vs raw     vs text');
     out(
-      `  html grezzo                  ${per(totals.rawTokens).padStart(9)}` +
+      `  raw html                     ${per(totals.rawTokens).padStart(9)}` +
         `${'—'.padStart(12)}${'—'.padStart(11)}`
     );
     out(
-      `  testo estratto (scraper)     ${per(totals.textTokens).padStart(9)}` +
+      `  extracted text (scraper)     ${per(totals.textTokens).padStart(9)}` +
         `${times(totals.rawTokens, totals.textTokens).padStart(12)}${'—'.padStart(11)}`
     );
     out(
@@ -294,9 +297,9 @@ describe.skipIf(corpus.length === 0)('corpus reale', () => {
         `${times(totals.textTokens, totals.toolTokens).padStart(11)}`
     );
     out(line);
-    out('PER VERTICALE            pagine    grezzo    testo   agentic   vs testo');
+    out('PER VERTICAL              pages       raw      text   agentic    vs text');
     for (const [vertical, b] of [...totals.byVertical].sort()) {
-      const avg = (n: number) => Math.round(n / b.pages).toLocaleString('it-IT');
+      const avg = (n: number) => Math.round(n / b.pages).toLocaleString('en-US');
       out(
         `  ${vertical.padEnd(20)} ${String(b.pages).padStart(6)} ` +
           `${avg(b.rawTokens).padStart(9)}${avg(b.textTokens).padStart(9)}` +
@@ -304,7 +307,7 @@ describe.skipIf(corpus.length === 0)('corpus reale', () => {
       );
     }
     out(line);
-    out('token contati con o200k_base, un proxy: non è il tokenizer di Claude');
+    out('counted with o200k_base, a proxy: it is not Claude\'s tokenizer');
     out(`${line}\n`);
   });
 });

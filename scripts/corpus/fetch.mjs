@@ -54,7 +54,7 @@ async function withRetry(label, fn, attempts = 6) {
       return await fn();
     } catch (err) {
       if (attempt === attempts) throw err;
-      console.log(`    ${label}: ${err.message} — riprovo tra ${wait / 1000}s`);
+      console.log(`    ${label}: ${err.message} — retrying in ${wait / 1000}s`);
       await sleep(wait);
       wait = Math.min(wait * 2, 30_000);
     }
@@ -152,13 +152,13 @@ for (const seed of seeds) {
   try {
     records = await withRetry('indice', () => captures(config.crawl, seed.pattern, wanted));
   } catch (err) {
-    console.log(`    indice irraggiungibile: ${err.message}\n`);
+    console.log(`    index unreachable: ${err.message}\n`);
     failures.push({ pattern: seed.pattern, stage: 'cdx', reason: err.message });
     continue;
   }
 
   if (records.length === 0) {
-    console.log('    nessuna cattura in questo crawl\n');
+    console.log('    no captures in this crawl\n');
     failures.push({ pattern: seed.pattern, stage: 'cdx', reason: 'no captures' });
     continue;
   }
@@ -170,7 +170,7 @@ for (const seed of seeds) {
       if (page.status !== 200) throw new Error(`la cattura riporta HTTP ${page.status}`);
       // An interstitial or a challenge weighs a couple of kilobytes and is not
       // the page anyone asked for.
-      if (page.html.length < 2000) throw new Error(`solo ${page.html.length} byte, non è la pagina`);
+      if (page.html.length < 2000) throw new Error(`only ${page.html.length} bytes, that is not the page`);
 
       const file = join(seed.vertical, `${slugFor(record.url)}.html`);
       writeFileSync(join(OUT, file), page.html, 'utf8');
@@ -191,19 +191,19 @@ for (const seed of seeds) {
     }
   });
 
-  console.log(`    ${kept}/${records.length} pagine salvate\n`);
+  console.log(`    ${kept}/${records.length} pages saved\n`);
 }
 
 const bytes = pages.reduce((sum, page) => sum + page.bytes, 0);
 console.log(
-  `${pages.length} pagine, ${(bytes / 1024 / 1024).toFixed(1)} MB, ${failures.length} fallimenti`
+  `${pages.length} pages, ${(bytes / 1024 / 1024).toFixed(1)} MB, ${failures.length} failures`
 );
 
 // A partial run must not write the lock. The lock describes one coherent build,
 // and a `--only` run knows nothing about the verticals it skipped: writing it
 // here would erase them from the record while leaving their files on disk.
 if (onlyVertical || pagesOverride) {
-  console.log('run parziale: il lock non è stato toccato');
+  console.log('partial run: the lock was left untouched');
 } else {
   pages.sort((a, b) => a.file.localeCompare(b.file));
   writeFileSync(
@@ -214,5 +214,5 @@ if (onlyVertical || pagesOverride) {
       2
     )}\n`
   );
-  console.log('lock scritto in corpus/corpus.lock.json');
+  console.log('lock written to corpus/corpus.lock.json');
 }

@@ -24,8 +24,41 @@ export const PROFILES: readonly Profile[] = [
         pick: ['price', 'priceCurrency', 'availability', 'itemCondition', 'priceValidUntil', 'url', 'seller'],
       },
       {
+        // A `ProductGroup` holds no `offers` of its own: the price of every size
+        // and colour sits under `hasVariant`. Without this entry no price tool
+        // is generated for such a page at all, and an agent asked what the
+        // product costs is told the markup does not say — on a page carrying
+        // thirteen prices. 46 of the 75 shop pages in the corpus are groups.
+        //
+        // Shops publish this both ways round, so both are named: the group's own
+        // variants first, and failing that the siblings reached back through the
+        // group when the page is about one variant.
+        //
+        // The variants themselves rather than their offers, which is the
+        // difference between a list of prices and a list an agent can use.
+        // `sku`, `color` and `size` live on the variant while the price lives a
+        // hop below it, so returning the offers alone hands back thirteen
+        // numbers with nothing to attach them to — and this description would be
+        // promising something the payload does not contain.
+        name: 'variants',
+        from: ['hasVariant', 'isVariantOf.hasVariant'],
+        list: true,
+        description:
+          'Each variant (size, colour) of the product on this page, with its own price and availability.',
+        pick: ['name', 'sku', 'color', 'size', 'material', 'offers'],
+      },
+      {
+        // Two shapes, one tool. A variant's own rating comes first because it is
+        // what the page is about; the group's is the fallback, and it is where
+        // shops usually keep the reviews. Patagonia publishes `ratingValue:
+        // 4.45, reviewCount: 147` on the group while the page is about a single
+        // variant, and an agent asked for the rating was told there was none.
+        //
+        // Candidates rather than two entries, on purpose: a page carrying both
+        // produced `get_product_rating` and `get_product_rating_2`, identical in
+        // description, and an agent has no way to choose between them.
         name: 'rating',
-        from: 'aggregateRating',
+        from: ['aggregateRating', 'isVariantOf.aggregateRating'],
         description: 'Aggregate customer rating of the product on this page.',
       },
       { name: 'reviews', from: 'review', list: true, description: 'Individual customer reviews of the product.' },

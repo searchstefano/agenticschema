@@ -205,4 +205,96 @@ describe('profiles applied to realistic pages', () => {
     expect(product).not.toHaveProperty('weight');
     expect(product).not.toHaveProperty('award');
   });
+
+  /**
+   * The shape of a real shop page, and the defect the agent benchmark found: a
+   * `ProductGroup` node carries no `offers`, so the price tool was never built
+   * and an agent asked what the product cost was told the markup did not say —
+   * on a page whose markup held thirteen prices.
+   */
+  describe('a ProductGroup, whose prices live in its variants', () => {
+    const GROUP = `{
+      "@context":"https://schema.org","@type":"ProductGroup","name":"Occhiali ACCURI 2",
+      "sku":"OHPB0AY",
+      "hasVariant":[
+        {"@type":"Product","sku":"OHPB0AY-BLK","color":"Black",
+         "offers":{"@type":"offer","price":49.95,"priceCurrency":"USD",
+                   "availability":"https://schema.org/InStock"}},
+        {"@type":"Product","sku":"OHPB0AY-GLD","color":"Gold",
+         "offers":{"@type":"offer","price":59.95,"priceCurrency":"USD"}}
+      ]}`;
+
+    it('keeps every price attached to the variant it belongs to', async () => {
+      // Returning the offers alone would hand an agent two numbers with nothing
+      // to attach them to, while the description promises size and colour. The
+      // price lives a hop below the variant, so the variant is what comes back.
+      const variants = await run(toolsFor(GROUP).find((t) => t.name === 'get_product_variants')!);
+
+      expect(variants).toHaveLength(2);
+      expect(variants[0]).toMatchObject({
+        sku: 'OHPB0AY-BLK',
+        color: 'Black',
+        offers: { price: 49.95, priceCurrency: 'USD' },
+      });
+      expect(variants[1]).toMatchObject({ color: 'Gold', offers: { price: 59.95 } });
+    });
+
+    it('reads a price through the misspelled lowercase offer type', async () => {
+      // `"@type": "offer"` is on 21 pages of the corpus. The path follows a
+      // reference rather than a type, which is what makes it survive that.
+      const variants = await run(toolsFor(GROUP).find((t) => t.name === 'get_product_variants')!);
+      expect(variants[0].offers.price).toBe(49.95);
+    });
+
+    it('gives a page carrying the rating twice exactly one rating tool', async () => {
+      // Reproduced from a page with `aggregateRating` on the variant *and* on
+      // its group: it produced `get_product_rating` and `get_product_rating_2`,
+      // identical in description, plus a third from the group as an entity of
+      // its own. An agent has no way to choose between those.
+      const tools = toolsFor(`{
+        "@context":"https://schema.org","@graph":[
+          {"@type":"Product","name":"Duffel 40L","sku":"V1","isVariantOf":{"@id":"#g"},
+           "aggregateRating":{"@type":"AggregateRating","ratingValue":4.9,"reviewCount":3},
+           "offers":{"@type":"Offer","price":165,"priceCurrency":"USD"}},
+          {"@type":"ProductGroup","@id":"#g","name":"Duffel",
+           "aggregateRating":{"@type":"AggregateRating","ratingValue":4.45,"reviewCount":147}}
+        ]}`);
+
+      const ratings = tools.filter((t) => t.name.startsWith('get_product_rating'));
+      expect(ratings).toHaveLength(1);
+      // The variant's own, because that is what the page is about.
+      expect(await run(ratings[0]!)).toMatchObject({ ratingValue: 4.9 });
+      // And no second copy of the product itself, reached through the group.
+      expect(tools.filter((t) => /^get_product(_\d+)?$/.test(t.name))).toHaveLength(1);
+    });
+
+    it('finds the rating on the group when the page is about one variant', async () => {
+      // The shape Patagonia publishes, and the mirror of the price case: the
+      // page's own entity is a variant, `isVariantOf` points at the group, and
+      // the reviews belong to the group. Asked for the rating, an agent used to
+      // be told the page carried none — on a page publishing 147 of them.
+      const tools = toolsFor(`{
+        "@context":"https://schema.org","@graph":[
+          {"@type":"Product","name":"Black Hole Duffel 40L","sku":"49339-BLK",
+           "isVariantOf":{"@id":"#group"},
+           "offers":{"@type":"Offer","price":165,"priceCurrency":"USD"}},
+          {"@type":"ProductGroup","@id":"#group","name":"Black Hole Duffel",
+           "aggregateRating":{"@type":"AggregateRating","ratingValue":4.45,"reviewCount":147}}
+        ]}`);
+
+      const rating = tools.find((t) => t.name === 'get_product_rating');
+      expect(rating).toBeDefined();
+      expect(await run(rating!)).toMatchObject({ ratingValue: 4.45, reviewCount: 147 });
+    });
+
+    it('leaves an ordinary product with one offer alone', async () => {
+      const tools = toolsFor(`{
+        "@context":"https://schema.org","@type":"Product","name":"Zaino",
+        "offers":{"@type":"Offer","price":129.9,"priceCurrency":"EUR"}}`);
+      const names = tools.map((t) => t.name);
+      expect(names).toContain('get_product_offer');
+      // Nothing to vary, so no tool that would answer `{}`.
+      expect(names).not.toContain('get_product_variant_offers');
+    });
+  });
 });

@@ -1,0 +1,43 @@
+{
+  "_comment": [
+    "Questions put to an agent about a page, five per vertical.",
+    "",
+    "Three are plain facts, one needs two pieces of information that do not live in the same",
+    "place, and one has no answer on the page at all. That last kind is the point of the set:",
+    "an agent that invents an answer is worse than one that fails, and nothing else here would",
+    "catch it.",
+    "",
+    "Written against what the corpus actually contains, checked type by type: Product, Brand,",
+    "Offer and AggregateRating for ecommerce, NewsArticle for news, Article for reference,",
+    "Recipe for recipe. A question about a field the pages do not carry would measure the",
+    "question rather than the library.",
+    "",
+    "`book` has no questions. Two pages is not a vertical."
+  ],
+  "answerProtocol": "Answer with the value alone, no sentence and no explanation. If the page does not give the answer, reply with exactly NOT_ON_PAGE.",
+  "tasks": [
+    { "id": "ecommerce-name", "vertical": "ecommerce", "kind": "fact", "question": "What is the name of the product this page is about?" },
+    { "id": "ecommerce-price", "vertical": "ecommerce", "kind": "fact", "question": "What does this product cost, and in which currency?" },
+    { "id": "ecommerce-brand", "vertical": "ecommerce", "kind": "fact", "question": "Which brand makes this product?" },
+    { "id": "ecommerce-rating-and-price", "vertical": "ecommerce", "kind": "multi", "question": "What is this product's average customer rating, and what does it cost?" },
+    { "id": "ecommerce-stock-count", "vertical": "ecommerce", "kind": "absent", "question": "How many units of this product are currently left in the warehouse?" },
+
+    { "id": "news-headline", "vertical": "news", "kind": "fact", "question": "What is the headline of this article?" },
+    { "id": "news-author", "vertical": "news", "kind": "fact", "question": "Who wrote this article?" },
+    { "id": "news-published", "vertical": "news", "kind": "fact", "question": "On what date was this article published?" },
+    { "id": "news-publisher-and-section", "vertical": "news", "kind": "multi", "question": "Which organisation published this article, and which section does it belong to?" },
+    { "id": "news-share-count", "vertical": "news", "kind": "absent", "question": "How many times has this article been shared on social media?" },
+
+    { "id": "reference-title", "vertical": "reference", "kind": "fact", "question": "What is the title of this page?" },
+    { "id": "reference-subject", "vertical": "reference", "kind": "fact", "question": "In one short phrase, what is this page about?" },
+    { "id": "reference-modified", "vertical": "reference", "kind": "fact", "question": "When was this page last modified?" },
+    { "id": "reference-publisher-and-date", "vertical": "reference", "kind": "multi", "question": "Who publishes this page, and when was it first published?" },
+    { "id": "reference-read-count", "vertical": "reference", "kind": "absent", "question": "How many people have read this page?" },
+
+    { "id": "recipe-name", "vertical": "recipe", "kind": "fact", "question": "What is the name of this recipe?" },
+    { "id": "recipe-time", "vertical": "recipe", "kind": "fact", "question": "What is the preparation time for this recipe, not counting cooking time?" },
+    { "id": "recipe-yield", "vertical": "recipe", "kind": "fact", "question": "How many servings does this recipe make?" },
+    { "id": "recipe-time-and-rating", "vertical": "recipe", "kind": "multi", "question": "What is the total time for this recipe, and what rating does it have?" },
+    { "id": "recipe-cost", "vertical": "recipe", "kind": "absent", "question": "How much does it cost to buy the ingredients for this recipe?" }
+  ]
+}

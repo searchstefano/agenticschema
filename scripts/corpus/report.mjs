@@ -79,26 +79,26 @@ const bytes = present.reduce((sum, r) => sum + r.bytes, 0);
 const sizes = present.map((r) => r.bytes).sort((a, b) => a - b);
 const median = sizes.length ? sizes[Math.floor(sizes.length / 2)] : 0;
 
-console.log(`\nCORPUS  ${lock.crawl}, raccolto il ${lock.fetchedAt}\n${'─'.repeat(64)}`);
-console.log(`${pad('pagine', 34)} ${present.length}`);
-console.log(`${pad('peso totale', 34)} ${(bytes / 1024 / 1024).toFixed(1)} MB`);
-console.log(`${pad('peso mediano di una pagina', 34)} ${Math.round(median / 1024)} KB`);
-console.log(`${pad('con un tipo che non sia arredamento', 34)} ${substantive.length}`);
-console.log(`${pad('solo arredamento', 34)} ${furnitureOnly.length}`);
-console.log(`${pad('solo microdata o rdfa, niente json-ld', 34)} ${otherSyntaxOnly.length}`);
-console.log(`${pad('nessun dato strutturato', 34)} ${nothing.length}`);
+console.log(`\nCORPUS  ${lock.crawl}, collected ${lock.fetchedAt}\n${'─'.repeat(64)}`);
+console.log(`${pad('pages', 34)} ${present.length}`);
+console.log(`${pad('total size', 34)} ${(bytes / 1024 / 1024).toFixed(1)} MB`);
+console.log(`${pad('median page', 34)} ${Math.round(median / 1024)} KB`);
+console.log(`${pad('with a type that is not furniture', 34)} ${substantive.length}`);
+console.log(`${pad('furniture only', 34)} ${furnitureOnly.length}`);
+console.log(`${pad('microdata or rdfa only, no json-ld', 34)} ${otherSyntaxOnly.length}`);
+console.log(`${pad('no structured data at all', 34)} ${nothing.length}`);
 const counted = substantive.length + furnitureOnly.length + otherSyntaxOnly.length + nothing.length;
 if (counted !== present.length) {
-  console.log(`${pad('NON CLASSIFICATE', 34)} ${present.length - counted}`);
+  console.log(`${pad('UNCLASSIFIED', 34)} ${present.length - counted}`);
 }
-console.log(`${pad('blocchi ld+json illeggibili', 34)} ${present.reduce((s, r) => s + r.broken, 0)}`);
-console.log(`${pad('pagine con microdata', 34)} ${present.filter((r) => r.microdata).length}`);
-console.log(`${pad('pagine con rdfa', 34)} ${present.filter((r) => r.rdfa).length}`);
+console.log(`${pad('unparsable ld+json blocks', 34)} ${present.reduce((s, r) => s + r.broken, 0)}`);
+console.log(`${pad('pages with microdata', 34)} ${present.filter((r) => r.microdata).length}`);
+console.log(`${pad('pages with rdfa', 34)} ${present.filter((r) => r.rdfa).length}`);
 if (rows.length !== present.length) {
-  console.log(`${pad('file mancanti sul disco', 34)} ${rows.length - present.length}`);
+  console.log(`${pad('files missing from disk', 34)} ${rows.length - present.length}`);
 }
 
-console.log(`\nPER VERTICALE\n${'─'.repeat(64)}`);
+console.log(`\nPER VERTICAL\n${'─'.repeat(64)}`);
 const byVertical = new Map();
 for (const row of present) {
   const bucket = byVertical.get(row.vertical) ?? { pages: 0, bytes: 0, thin: 0 };
@@ -108,16 +108,16 @@ for (const row of present) {
   byVertical.set(row.vertical, bucket);
 }
 for (const [vertical, b] of [...byVertical].sort()) {
-  const thin = b.thin ? `, ${b.thin} senza un tipo utile` : '';
+  const thin = b.thin ? `, ${b.thin} with no useful type` : '';
   console.log(
-    `${pad(vertical, 12)} ${pad(`${b.pages} pagine`, 12)} ${pad(
-      `${Math.round(b.bytes / b.pages / 1024)} KB medi`,
+    `${pad(vertical, 12)} ${pad(`${b.pages} pages`, 12)} ${pad(
+      `${Math.round(b.bytes / b.pages / 1024)} KB mean`,
       14
     )}${thin}`
   );
 }
 
-console.log(`\nTIPI TROVATI\n${'─'.repeat(64)}`);
+console.log(`\nTYPES FOUND\n${'─'.repeat(64)}`);
 const counts = new Map();
 for (const row of present) {
   for (const type of row.types) counts.set(type, (counts.get(type) ?? 0) + 1);
@@ -128,11 +128,11 @@ for (const [type, n] of ranked.slice(0, 30)) {
   const mark = FURNITURE.has(type) ? ' ·' : '  ';
   console.log(`${mark}${pad(type, 26)} ${pad(n, 5)} ${bar(n, max)}`);
 }
-if (ranked.length > 30) console.log(`  … e altri ${ranked.length - 30} tipi`);
-console.log('\n  · = arredamento della pagina, non il suo soggetto\n');
+if (ranked.length > 30) console.log(`  … and ${ranked.length - 30} more types`);
+console.log('\n  · = the page furniture, not its subject\n');
 
 if (lock.failures.length) {
-  console.log(`FALLIMENTI DI RACCOLTA\n${'─'.repeat(64)}`);
+  console.log(`COLLECTION FAILURES\n${'─'.repeat(64)}`);
   const byReason = new Map();
   for (const f of lock.failures) {
     const key = `${f.stage}: ${f.reason}`;

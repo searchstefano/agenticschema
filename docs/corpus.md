@@ -32,20 +32,27 @@ Tokens per page, averaged over the corpus, counted with `o200k_base`:
 | --- | ---: | ---: | ---: |
 | Raw HTML, as served | 143,771 | — | — |
 | Extracted text, what a competent scraper sends | 2,752 | 52x | — |
-| AgenticSchema tool output | 1,451 | **99x** | **1.9x** |
+| AgenticSchema tool output | 1,440 | **100x** | **1.9x** |
 
-The 99x is the number that looks good in a headline and it is the wrong one to quote. Nobody
+The 100x is the number that looks good in a headline and it is the wrong one to quote. Nobody
 serious feeds raw HTML to a model; a scraper strips the markup first, and that single step
-accounts for 52 of the 99. **Against a competent scraper the honest figure is 1.9x**, and it is
+accounts for 52 of the 100. **Against a competent scraper the honest figure is 1.9x**, and it is
 not uniform:
 
 | Vertical | Pages | Raw HTML | Extracted text | AgenticSchema | vs text |
 | --- | ---: | ---: | ---: | ---: | ---: |
 | reference | 50 | 62,731 | 3,699 | 208 | 18x |
 | news | 25 | 90,530 | 882 | 528 | 1.7x |
-| ecommerce | 75 | 240,151 | 2,912 | 1,843 | 1.6x |
+| ecommerce | 75 | 240,151 | 2,912 | 1,815 | 1.6x |
 | recipe | 25 | 58,454 | 1,549 | **3,787** | **0.4x** |
 | book | 2 | 287,454 | 11,534 | 191 | 61x |
+
+The ecommerce row has moved twice and the round trip is worth recording. It was 1,843 tokens when
+a `ProductGroup`'s price was unreachable; exposing the variants took it to 1,934, which looked
+like the price of correctness — a saving measured on data an agent cannot use is not a saving.
+Then the same paths were taught to count the entities they pass through as already described, the
+duplicate tools a variant page had been emitting disappeared, and it settled at **1,815: below
+where it started, while exposing more.** Deduplication paid for the fix and left change.
 
 **On recipes the library loses: more than twice the tokens of simply sending the text.** A
 recipe's structured data is the recipe — every ingredient, every step, every timing, plus a
@@ -67,7 +74,8 @@ so the regression on a page that is only a recipe is worse than 0.4x, not better
 
 This is a size measurement. It says how much less an agent has to read, not whether it answers
 better, not whether it picks the right tool, not how many calls it takes. Those need tasks and an
-agent, and neither exists yet.
+agent, and they are measured separately in [docs/bench.md](bench.md) — where the per-page saving
+turns out not to be what an agent ends up paying.
 
 The token counts use `o200k_base`, the encoding modern GPT models use. It is a proxy, not
 Claude's tokenizer: BPE vocabularies of this generation land within a few per cent of one another
@@ -142,22 +150,22 @@ AgenticSchema, so it answers "what is on these pages" rather than "what does the
 them".
 
 ```
-pagine                                177
-peso totale                           76.7 MB
-peso mediano di una pagina            297 KB
-con un tipo che non sia arredamento   151
-solo arredamento                      0
-solo microdata o rdfa, niente json-ld  25
-nessun dato strutturato                 1
-blocchi ld+json illeggibili             0
+pages                              177
+total size                         76.4 MB
+median page                        276 KB
+with a type that is not furniture  139
+furniture only                     0
+microdata or rdfa only, no json-ld  25
+no structured data at all           13
+unparsable ld+json blocks           0
 ```
 
 Sources: ikea.com, backcountry.com, patagonia.com (ecommerce); developer.mozilla.org,
 en.wikipedia.org (reference); aljazeera.com (news); marmiton.org (recipe); goodreads.com (book).
 
-The type census is dominated by furniture — `BreadcrumbList` and `ListItem` on 120 pages each —
-which is itself the finding that motivates `selectPrimary`. Below that sit `Product` (71),
-`Brand` (71), `AggregateRating` (65), `Offer` (50).
+The type census is dominated by furniture — `BreadcrumbList` and `ListItem` on 108 pages each —
+which is itself the finding that motivates `selectPrimary`. Below that sit `AggregateRating` (74),
+`Product` (71), `Brand` (71), `Offer` (50) and `ProductGroup` (46).
 
 Four things in it are worth pointing at:
 
@@ -170,10 +178,11 @@ Four things in it are worth pointing at:
 - **Zero unparsable JSON-LD blocks.** Curated sites are careful ones. On a random sample this
   would not be zero, and its absence is a symptom of the bias below.
 
-All 177 pages produced at least one tool, 964 in total. Note that the report counts one page as
-having no structured data while the test finds a tool for all 177: the report scans JSON-LD only,
-whereas the pipeline also reads Microdata and RDFa. The two disagree because the pipeline looks
-harder.
+All 177 pages produced at least one tool, 977 in total. Note that the report counts **13** pages as
+having no structured data while the test finds a tool for every one of the 177: the report scans
+JSON-LD only, whereas the pipeline also reads microdata and RDFa. The two disagree because the
+pipeline looks harder, and the size of the disagreement is the measure of how much a JSON-LD-only
+census misses.
 
 ---
 
@@ -259,5 +268,19 @@ There is no agent here. No tasks, no LLM calls, no task-success rate, no tool-se
 no call counts, no latency. This document reports how many tokens each approach costs and stops
 there.
 
-The benchmark that measures whether an agent *does better* is the next piece of work, and this
-corpus is what it will run on.
+The benchmark that measures whether an agent *does better* runs on this corpus and is written up
+in [docs/bench.md](bench.md). Its first result is worth knowing before reading the table above as
+a recommendation. Judged by a referee that counts a fact whether it appears in the prose or in the
+published data, an agent answered four points *better* with the tools than with the page's text on
+the pages that publish something to map — while taking 2.2 turns against 1.0 to do it.
+
+The saving measured here is real and it is not what an agent ends up paying, because the two costs
+are not the same shape. **The per-page figures above are what the text arm pays, and they scale
+with the page.** What the tools arm pays is turns. So this table's own spread — 18x on reference
+against 0.4x on recipes — is also the spread of who comes out cheaper end to end, and on a sample
+of terse pages the arm with the smaller payload can read more in total than the arm with the
+bigger one.
+
+The recipe row is the sharpest case in both directions. It is this library's worst vertical on
+tokens, at 0.4x, and the one where the tools arm beats reading the page by 20 points. Both are one
+fact seen twice: a recipe's structured data is dense, so it costs more to send and it knows more.

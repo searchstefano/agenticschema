@@ -5,8 +5,20 @@ export interface ReadSpec {
   /** Name suffix: slug "product" plus name "offer" gives `get_product_offer`. Leave out for plain `get_product`. */
   name?: string;
   description: string;
-  /** Follow this reference property first (`offers`, say) and read what it points at. */
-  from?: string;
+  /**
+   * Follow this reference property first (`offers`, say) and read what it
+   * points at. Dots go a hop further: `hasVariant.offers` reaches the prices of
+   * a `ProductGroup`, which carries none of its own.
+   *
+   * A list is a list of candidates, and the first that resolves wins. Shops
+   * publish the same page both ways round — sometimes the group is the page's
+   * subject with its variants below it, sometimes a variant is, with the group
+   * above — so the fact sits under `aggregateRating` on one and
+   * `isVariantOf.aggregateRating` on the other. Two separate specs would emit
+   * two tools with one description on a page carrying both, which is worse than
+   * either: an agent has no way to choose between them.
+   */
+  from?: string | string[];
   /** Properties to include. Everything available if omitted. */
   pick?: string[];
   /** When `from` holds several values, return them all rather than just the first. */

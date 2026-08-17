@@ -1,0 +1,109 @@
+{
+  "_comment": [
+    "Aggregate results of benchmark runs, committed so that a comparison survives",
+    "the working tree.",
+    "",
+    "Everything else the benchmark produces stays in the gitignored output",
+    "directory, because a trial holds the answer a model gave about somebody",
+    "else's page. These are counts and means only: nothing here came off a page.",
+    "",
+    "The reason this file exists is a specific loss. The ToolSearch experiment ran",
+    "twice over the same 60 questions, the second run overwrote the first, and the",
+    "'available' half of that comparison could no longer be rebuilt from the",
+    "workspace — only from a table already written into docs/bench.md. A measured",
+    "baseline that exists in one place, in prose, is a baseline waiting to be",
+    "mistyped.",
+    "",
+    "`config` is the fingerprint the run recorded, so a later run can tell whether",
+    "it is comparing like with like. `unrecorded` means the run predates that",
+    "fingerprint and can be trusted only as far as its notes."
+  ],
+
+  "baselines": [
+    {
+      "id": "sonnet-fixed-library",
+      "at": "2026-08-16",
+      "config": "verified",
+      "what": "The first run whose configuration is checked rather than assumed: every trial carries a fingerprint of model, referee, turn cap, deny list, question, page and library, and they all agree. Three pages per vertical, both arms, on the library with both variant paths and the rating deduplication. Supersedes two-keys-208, which measured an earlier library across configurations that were never verified.",
+      "model": "sonnet",
+      "refereeModel": "sonnet",
+      "trials": 120,
+      "pages": 12,
+      "cells": 60,
+      "textDerivedKey": { "text": 0.95, "tools": 0.77 },
+      "neutralKey": { "text": 0.87, "tools": 0.87 },
+      "neutralKeyMappablePagesOnly": { "text": 0.85, "tools": 0.89, "pages": 11 },
+      "perVerticalNeutral": {
+        "ecommerce": { "text": 1.0, "tools": 1.0 },
+        "news": { "text": 1.0, "tools": 0.8 },
+        "recipe": { "text": 0.6, "tools": 0.8 },
+        "reference": { "text": 0.87, "tools": 0.87 }
+      },
+      "turns": { "text": 1.0, "tools": 2.2 },
+      "contextRead": { "text": 51912, "tools": 51448 },
+      "usdEquivalent": { "text": 0.0764, "tools": 0.0499 },
+      "hallucinationsOnAbsent": { "text": "1/10", "tools": "0/10" }
+    },
+    {
+      "id": "haiku-arms",
+      "at": "2026-08-17",
+      "config": "verified",
+      "what": "The same cells, the same answer keys and the same sonnet referee, with only the two arms answering on haiku. Run to answer 'would a cheaper model change the result', and it does: the text arm barely moves while the tools arm falls, so the difference between them changes sign. Reading a page is easy enough for a small model; calling tools is not. Cheaper by 63% and a different question.",
+      "model": "haiku",
+      "refereeModel": "sonnet",
+      "trials": 117,
+      "comparedAgainst": "sonnet-fixed-library, restricted to the same 117 trials",
+      "neutralKey": { "text": 0.85, "tools": 0.82 },
+      "neutralKeyMappablePagesOnly": { "text": 0.84, "tools": 0.82 },
+      "sonnetOnTheSameTrials": {
+        "neutralKey": { "text": 0.87, "tools": 0.88 },
+        "neutralKeyMappablePagesOnly": { "text": 0.85, "tools": 0.89 }
+      },
+      "turns": { "tools": 2.7, "sonnetTools": 2.2 },
+      "usdEquivalentPerTrial": { "haiku": 0.0237, "sonnet": 0.0641 }
+    },
+    {
+      "id": "toolsearch-available",
+      "at": "2026-08-16",
+      "config": "unrecorded",
+      "what": "Tools arm with the CLI free to call ToolSearch, which fetches the schemas of MCP tools it has been given the names of.",
+      "model": "sonnet",
+      "arm": "tools",
+      "trials": 60,
+      "agreementNeutral": 0.88,
+      "turns": 3.37,
+      "contextRead": 43589,
+      "seconds": 5.0,
+      "usdEquivalent": 0.0331
+    },
+    {
+      "id": "toolsearch-denied",
+      "at": "2026-08-16",
+      "config": "unrecorded",
+      "what": "The same 60 questions, same pages, same answer keys, with ToolSearch denied. Turns fall by a third and agreement rises; the schemas ride in the prompt instead, so context read goes up.",
+      "model": "sonnet",
+      "arm": "tools",
+      "trials": 60,
+      "agreementNeutral": 0.92,
+      "turns": 2.22,
+      "contextRead": 49177,
+      "seconds": 3.2,
+      "usdEquivalent": 0.0568
+    },
+    {
+      "id": "two-keys-208",
+      "at": "2026-08-16",
+      "config": "unrecorded",
+      "what": "Both arms: five pages per vertical answered in full, plus a sixth answered only for its first question. Measured BEFORE the mapping fixes that attach a variant's price to its size and colour and that stop a page carrying two ratings emitting two tools, so the ecommerce figures are owed a re-run.",
+      "model": "sonnet",
+      "trials": 208,
+      "pages": 24,
+      "cells": 104,
+      "textDerivedKey": { "text": 0.96, "tools": 0.76 },
+      "neutralKey": { "text": 0.89, "tools": 0.88 },
+      "neutralKeyMappablePagesOnly": { "text": 0.88, "tools": 0.93, "pages": 22, "trials": 94 },
+      "turns": { "text": 1.0, "tools": 2.2 },
+      "contextRead": { "text": 30495, "tools": 50345 }
+    }
+  ]
+}

@@ -11,6 +11,10 @@ export default defineConfig({
     alias: {
       '@agenticschema/core': pkg('core'),
       '@agenticschema/profiles': pkg('profiles'),
+      // The bench scripts import the server package by name, and at runtime that
+      // is its build output. Aliased here too so the suite keeps running against
+      // the sources, and `npm test` on a fresh clone still needs no build first.
+      '@agenticschema/server': pkg('server'),
     },
   },
   test: {
