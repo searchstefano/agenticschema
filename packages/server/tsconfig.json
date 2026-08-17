@@ -1,4 +1,14 @@
 {
   "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    // This is the only package that runs on Node rather than in a page, and
+    // `cli.ts` reaches for `process`, `Buffer` and `node:http`. The types for
+    // those were never declared here: they arrived nested under this workspace
+    // because happy-dom depended on `@types/node`, so dropping happy-dom took
+    // them with it and the declaration build stopped resolving globals it had
+    // always used. Stated outright now, rather than left to whatever a runtime
+    // dependency happens to bring along.
+    "types": ["node"]
+  },
   "include": ["src/**/*.ts", "test/**/*.ts"]
 }

@@ -1,6 +1,6 @@
 export { toTools, defineTool, type PipelineOptions, type PipelineResult, type CustomTool } from './pipeline.js';
 
-export { extract, type ExtractOptions } from './extract/index.js';
+export { extract, needsDocument, type ExtractOptions } from './extract/index.js';
 export { normalize, type NormalizeOptions } from './normalize/index.js';
 export { selectPrimary, BOILERPLATE_TYPES } from './select/primary.js';
 export {

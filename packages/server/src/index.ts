@@ -5,9 +5,10 @@ import {
   type McpHttpHandler,
 } from '@modelcontextprotocol/server';
 import { AjvJsonSchemaValidator } from '@modelcontextprotocol/server/validators/ajv';
-import { Window } from 'happy-dom';
+import { parseHTML } from 'linkedom';
 import {
   materialize,
+  needsDocument,
   toTools,
   toSlug,
   type Diagnostic,
@@ -91,9 +92,15 @@ export async function createServer(
 
   for (const [index, page] of pages.entries()) {
     const html = page.html ?? (await fetchHtml(page.url, options.fetchImpl, options.timeoutMs));
-    const document = parseDocument(html);
 
-    const result = toTools(document, {
+    // A DOM only earns its cost when the page carries microdata or RDFa, and
+    // most pages do not. Parsing is 93% of the time from HTML to tools, so on a
+    // JSON-LD-only page — around seven in ten — skipping it is the difference
+    // between ~38 ms and well under one. `needsDocument` errs towards building
+    // one, so what this drops is work that would have found nothing.
+    const source = needsDocument(html, options) ? parseDocument(html) : html;
+
+    const result = toTools(source, {
       ...schemaOrgProfiles,
       ...options,
       baseUrl: page.url,
@@ -198,41 +205,50 @@ async function fetchHtml(
 }
 
 /**
- * happy-dom gives a real DOM, so microdata and RDFa work here. From a string they do not.
+ * A real DOM, so microdata and RDFa work here. From a string they do not.
  *
- * Every route out of the DOM is closed. happy-dom loads external resources by
- * default, and the urls it loads come from the page: a `<link>` or an `<iframe>`
- * is enough to make this process issue a request, to wherever the markup says.
- * On a server that is a request from inside the operator's network, link-local
- * metadata addresses included, and it walks past every check the rest of this
- * library applies before touching a destination.
+ * linkedom rather than happy-dom, for two reasons that point the same way.
  *
- * The timer bounds are here for the same reason. Script evaluation is off, so
- * nothing should be scheduling anything, but a default is not a guarantee and an
- * unbounded interval in a long-lived server never stops.
+ * It is about four times faster on the pages that need a parser at all, and
+ * parsing is where nearly all the time from a page to tools goes, so that is
+ * most of the end-to-end difference. Extraction was compared node by node
+ * across the corpus before the swap, and the two agreed on every page.
+ *
+ * The second reason matters more. happy-dom emulates a browser, which means it
+ * can load what a page points at — a `<link>` or an `<iframe>` was enough to
+ * make this process issue a request to wherever the markup said, from inside
+ * the operator's network, past every destination check the rest of this library
+ * applies. That was closed by turning six settings off and bounding the timers,
+ * which works but has to be remembered: it is one careless option away from
+ * coming back. linkedom is a parser and nothing more — htmlparser2, css-select
+ * and cssom underneath it, no HTTP client anywhere in the tree, no script
+ * evaluation, no timers to bound. The defence stops being a configuration and
+ * becomes the absence of the capability.
+ *
+ * The tradeoff, stated: htmlparser2 is not a spec-compliant HTML5 tree builder,
+ * so on badly broken markup it can differ from what a browser would build. The
+ * corpus suite is what guards that, and `test:corpus` is the gate for any
+ * change here.
  */
 export function parseDocument(html: string): Document {
-  const window = new Window({
-    settings: {
-      disableJavaScriptEvaluation: true,
-      disableJavaScriptFileLoading: true,
-      disableCSSFileLoading: true,
-      disableIframePageLoading: true,
-      enableImageFileLoading: false,
-      // Otherwise every blocked resource is reported as a load error, and a page
-      // with two hundred of them buries anything worth reading.
-      handleDisabledFileLoadingAsSuccess: true,
-      timer: {
-        maxTimeout: 1_000,
-        maxIntervalTime: 1_000,
-        maxIntervalIterations: 10,
-        preventTimerLoops: true,
-      },
-    },
-  });
-  window.document.write(html);
-  return window.document as unknown as Document;
+  const { document } = parseHTML(html);
+  if (document.documentElement) return document as unknown as Document;
+
+  // Input carrying no element at all — an empty response, a plain-text error
+  // page, a bare doctype — leaves linkedom with a document that has no root,
+  // and `head` and `body` then throw instead of being absent. A browser builds
+  // the shell in that case, and so does this: what arrives here is whatever an
+  // arbitrary url returned, and a parser is no place to be surprised by it.
+  const shell = parseHTML('<html><head></head><body></body></html>').document;
+  const text = [...document.childNodes]
+    .filter((node) => node.nodeType === TEXT_NODE)
+    .map((node) => node.textContent ?? '')
+    .join('');
+  if (text) shell.body.textContent = text;
+  return shell as unknown as Document;
 }
+
+const TEXT_NODE = 3;
 
 function uniqueName(base: string, used: Set<string>): string {
   let name = base.slice(0, 64);

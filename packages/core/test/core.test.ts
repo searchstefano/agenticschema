@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { Window } from 'happy-dom';
-import { extract, normalize, isRef, type Entity, type EntityGraph } from '../src/index.js';
+import { extract, needsDocument, normalize, isRef, type Entity, type EntityGraph } from '../src/index.js';
 
 /** Shortcut from HTML to graph, the path the adapters take. */
 const graphOf = (html: string, baseUrl?: string): EntityGraph =>
@@ -103,6 +103,115 @@ describe('extract', () => {
     const product = byType(graph, 'Product');
     expect(product?.props['name']).toEqual(['Zaino Trekking 45L']);
     expect(product?.props['sku']).toEqual(['ZT-45-BLU']);
+  });
+
+  /**
+   * marmiton.org serves `type="application&#x2F;ld&#x2B;json"`. A parser decodes
+   * the attribute and finds the block; the string path compared the raw text and
+   * found nothing, on 7% of the corpus, reporting `no-structured-data` — which
+   * reads exactly like a page with no markup on it.
+   */
+  it('finds a block whose type attribute is entity-encoded', () => {
+    const { nodes, diagnostics } = extract(
+      '<script type="application&#x2F;ld&#x2B;json">{"@type":"Recipe","name":"Aiguillettes"}</script>'
+    );
+    expect(nodes).toHaveLength(1);
+    expect(nodes[0]?.data['name']).toBe('Aiguillettes');
+    expect(diagnostics.map((d) => d.code)).not.toContain('no-structured-data');
+  });
+
+  it('reads the type attribute however it is quoted or encoded', () => {
+    const forms = [
+      'application/ld+json',
+      'application&#x2F;ld&#x2B;json',
+      'application&#47;ld&#43;json',
+      'APPLICATION/LD+JSON',
+      ' application/ld+json ',
+    ];
+    for (const form of forms) {
+      expect(extract(`<script type="${form}">{"@type":"Product"}</script>`).nodes, form).toHaveLength(1);
+    }
+    expect(extract(`<script type=application/ld+json>{"@type":"Product"}</script>`).nodes).toHaveLength(1);
+    expect(extract(`<script type='application/ld+json'>{"@type":"Product"}</script>`).nodes).toHaveLength(1);
+  });
+
+  it('leaves other script types alone', () => {
+    const html =
+      '<script type="text/javascript">var x = {"@type":"Product"}</script>' +
+      '<script>var y = 1</script>' +
+      '<script type="application/json">{"@type":"Product"}</script>';
+    expect(extract(html).nodes).toHaveLength(0);
+  });
+
+  it('does not decode entities inside the block itself', () => {
+    // Script is a raw text element: the parser hands the body over untouched, so
+    // `&amp;` has to reach JSON.parse as written or the value changes under us.
+    const { nodes } = extract('<script type="application/ld+json">{"name":"Tom &amp; Jerry"}</script>');
+    expect(nodes[0]?.data['name']).toBe('Tom &amp; Jerry');
+  });
+
+  it('agrees with the Document path on the same markup', () => {
+    const html = '<script type="application&#x2F;ld&#x2B;json">{"@type":"Recipe","name":"Tarte"}</script>';
+    const fromString = extract(html, { formats: ['jsonld'] });
+    const fromDom = extract(docOf(html), { formats: ['jsonld'] });
+    expect(fromString.nodes).toEqual(fromDom.nodes);
+  });
+});
+
+describe('needsDocument', () => {
+  it('says no when the page carries only JSON-LD', () => {
+    expect(needsDocument(ldScript('{"@type":"Product"}'))).toBe(false);
+  });
+
+  it('is not fooled by the property attribute Open Graph puts on every page', () => {
+    // RDFa entities anchor on `typeof`; a bare `property` outside one yields
+    // nothing. Treating it as a signal made the check fire on 100% of the corpus.
+    expect(needsDocument('<meta property="og:title" content="Zaino">')).toBe(false);
+  });
+
+  it('says yes for microdata, however itemscope is written', () => {
+    const forms = [
+      '<div itemscope itemtype="https://schema.org/Product"></div>',
+      '<div itemscope></div>',
+      '<div itemscope/>',
+      '<div itemscope="itemscope"></div>',
+      '<div\n  itemscope\n  itemtype="https://schema.org/Product"></div>',
+    ];
+    for (const form of forms) expect(needsDocument(form), form).toBe(true);
+  });
+
+  it('says yes for RDFa', () => {
+    expect(needsDocument('<div typeof="schema:Product"></div>')).toBe(true);
+    expect(needsDocument('<div typeof = "Product"></div>')).toBe(true);
+  });
+
+  it('says no when the caller asked for JSON-LD only', () => {
+    const html = '<div itemscope typeof="Product"></div>';
+    expect(needsDocument(html, { formats: ['jsonld'] })).toBe(false);
+    expect(needsDocument(html, { formats: ['jsonld', 'microdata'] })).toBe(true);
+  });
+
+  it('gives the same answer when asked twice', () => {
+    // A `g` flag on the anchoring regexes would carry `lastIndex` between calls
+    // and make every second call on the same page answer differently.
+    const html = '<div itemscope></div><div typeof="Product"></div>';
+    expect(needsDocument(html)).toBe(true);
+    expect(needsDocument(html)).toBe(true);
+  });
+
+  it('never misses what extract would have found', () => {
+    // The direction that matters: a false positive wastes a parse, a false
+    // negative loses the entity.
+    const pages = [
+      '<div itemscope itemtype="https://schema.org/Product"><span itemprop="name">A</span></div>',
+      '<div typeof="schema:Product"><span property="name">A</span></div>',
+      '<article typeof="Recipe"></article>',
+    ];
+    for (const html of pages) {
+      const found = extract(docOf(html)).nodes.filter((n) => n.format !== 'jsonld');
+      expect(found.length, html).toBeGreaterThan(0);
+      expect(needsDocument(html), html).toBe(true);
+    }
   });
 });
 

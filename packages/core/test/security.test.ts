@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import {
+  extract,
   guardTools,
   sanitizeText,
   toTools,
@@ -192,6 +193,23 @@ describe('guard', () => {
       const started = performance.now();
       sanitizeText(payload);
       expect(performance.now() - started).toBeLessThan(250);
+    }
+  });
+
+  // Same shape one layer earlier. Scanning for `<script ...>...</script>` with a
+  // single pattern restarted at every opening tag that never closed: 20k of them
+  // took ~4s, on input fetched from whatever URL the caller passed.
+  it('scans for ld+json blocks in linear time on hostile input', () => {
+    const payloads = [
+      '<script'.repeat(20_000),
+      '<script>'.repeat(20_000),
+      '<script type="application/ld+json">'.repeat(20_000),
+      `<script type="application/ld+json">${'x'.repeat(500_000)}`,
+    ];
+    for (const payload of payloads) {
+      const started = performance.now();
+      expect(extract(payload).nodes).toHaveLength(0);
+      expect(performance.now() - started, `${payload.slice(0, 24)}…`).toBeLessThan(250);
     }
   });
 

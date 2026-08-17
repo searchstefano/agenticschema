@@ -213,6 +213,39 @@ describe('server adapter', () => {
     expect(diagnostics.some((d) => d.code === 'no-structured-data')).toBe(true);
     await client.close();
   });
+
+  /**
+   * A JSON-LD-only page skips the DOM entirely, which is where nearly all the
+   * time goes. These two hold the shortcut to the same result as the long way
+   * round: tools still come out, and an entity-encoded type is still found —
+   * that encoding used to depend on the parser being there to decode it.
+   */
+  it('maps a JSON-LD-only page without building a DOM', async () => {
+    const html = `<!doctype html><html><head><script type="application/ld+json">
+      { "@context": "https://schema.org", "@type": "Recipe", "name": "Tarte Tatin",
+        "recipeYield": "6", "cookTime": "PT45M" }
+    </script></head><body><p>nessun microdata qui</p></body></html>`;
+
+    const { client, diagnostics } = await connect(html, 'https://cucina.test/tarte');
+    const { tools } = await client.listTools();
+
+    expect(tools.length).toBeGreaterThan(0);
+    expect(diagnostics.some((d) => d.code === 'no-structured-data')).toBe(false);
+    await client.close();
+  });
+
+  it('still finds JSON-LD when the type attribute is entity-encoded', async () => {
+    const html = `<!doctype html><html><head><script type="application&#x2F;ld&#x2B;json">
+      { "@context": "https://schema.org", "@type": "Recipe", "name": "Aiguillettes de poulet" }
+    </script></head><body></body></html>`;
+
+    const { client, diagnostics } = await connect(html, 'https://cucina.test/aiguillettes');
+    const { tools } = await client.listTools();
+
+    expect(tools.length).toBeGreaterThan(0);
+    expect(diagnostics.some((d) => d.code === 'no-structured-data')).toBe(false);
+    await client.close();
+  });
 });
 
 /**
@@ -322,6 +355,30 @@ describe('parseDocument', () => {
   it('produces a Document the pipeline can use', () => {
     const doc = parseDocument('<html><body><div itemscope itemtype="https://schema.org/Person"></div></body></html>');
     expect(doc.querySelectorAll('[itemscope]')).toHaveLength(1);
+  });
+
+  // What comes back from an arbitrary url is not always a page. linkedom leaves
+  // a document with no root element when the input has no tags on it, and `body`
+  // then throws rather than being absent — so every one of these used to be an
+  // exception in the caller instead of an empty result.
+  it('builds a shell for input with no elements in it', () => {
+    for (const input of ['', '   ', '<!doctype html>', '<!-- vuoto -->', '502 Bad Gateway']) {
+      const doc = parseDocument(input);
+      expect(doc.documentElement, JSON.stringify(input)).toBeTruthy();
+      // Reaching for either of these is what used to throw.
+      expect(() => doc.body, JSON.stringify(input)).not.toThrow();
+      expect(doc.querySelectorAll('[itemscope]'), JSON.stringify(input)).toHaveLength(0);
+    }
+  });
+
+  it('keeps the text of a page that is only text, and invents none', () => {
+    // A browser puts a tagless body's text in the body, whitespace included, and
+    // a doctype or a comment is not text at all.
+    expect(parseDocument('502 Bad Gateway').body?.textContent).toBe('502 Bad Gateway');
+    expect(parseDocument('   ').body?.textContent).toBe('   ');
+    expect(parseDocument('').body?.textContent).toBe('');
+    expect(parseDocument('<!doctype html>').body?.textContent).toBe('');
+    expect(parseDocument('<!-- vuoto -->').body?.textContent).toBe('');
   });
 
   it('fetches nothing the page points at', async () => {

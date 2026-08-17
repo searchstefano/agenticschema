@@ -9,15 +9,51 @@ export interface ExtractOptions {
   formats?: Array<'jsonld' | 'microdata' | 'rdfa'>;
 }
 
+const DEFAULT_FORMATS: NonNullable<ExtractOptions['formats']> = ['jsonld', 'microdata', 'rdfa'];
+
 const isObject = (v: JsonValue | undefined): v is JsonObject =>
   typeof v === 'object' && v !== null && !Array.isArray(v);
+
+/**
+ * Whether this HTML needs a real DOM before `extract` can see everything on it.
+ *
+ * JSON-LD comes out of the string directly. Microdata and RDFa do not: they are
+ * attributes spread across the tree, and reading them means walking it. Building
+ * that tree is by far the most expensive thing on the path from a page to tools
+ * — measured over the corpus it is 93% of the total, against 0.6% for all the
+ * mapping put together — so it is worth asking first whether a given page has
+ * anything that would repay it. Most do not: roughly seven pages in ten carry
+ * JSON-LD and nothing else.
+ *
+ * Deliberately generous. It answers the cheap question "are the anchoring
+ * attributes present anywhere in the source", not "is there a valid entity
+ * here". A false positive costs one parse that finds nothing; a false negative
+ * would drop data silently, which is why the test looks for exactly what
+ * `extractMicrodata` and `extractRdfa` anchor on and nothing narrower. In
+ * particular it does not try to tell a schema.org `typeof` from any other
+ * vocabulary's: that judgement needs the parsed attribute value, and getting it
+ * wrong here would lose the entity rather than waste a parse.
+ */
+export function needsDocument(html: string, options: ExtractOptions = {}): boolean {
+  const formats = options.formats ?? DEFAULT_FORMATS;
+  return (
+    (formats.includes('microdata') && MICRODATA_ANCHOR.test(html)) ||
+    (formats.includes('rdfa') && RDFA_ANCHOR.test(html))
+  );
+}
+
+// `itemscope` is a boolean attribute, so it can be followed by whitespace, the
+// end of the tag, a self-closing slash, or an `=`. No `g` flag on either: these
+// are module-level, and `test` on a global regex carries `lastIndex` between calls.
+const MICRODATA_ANCHOR = /\sitemscope(?=[\s=>/]|$)/i;
+const RDFA_ANCHOR = /\stypeof\s*=/i;
 
 /**
  * Pulls the structured-data blobs out of a page without interpreting them.
  * Making sense of `@graph`, `@id` and prefixes is `normalize`'s job.
  */
 export function extract(source: Document | string, options: ExtractOptions = {}): ExtractResult {
-  const formats = options.formats ?? ['jsonld', 'microdata', 'rdfa'];
+  const formats = options.formats ?? DEFAULT_FORMATS;
   const diagnostics: Diagnostic[] = [];
   const nodes: RawNode[] = [];
 
@@ -74,8 +110,88 @@ const scanJsonLdFromDom = (doc: Document): string[] =>
  * tag cannot turn up inside valid JSON.
  */
 function scanJsonLdFromHtml(html: string): string[] {
-  const re = /<script\b[^>]*\btype\s*=\s*["']application\/ld\+json["'][^>]*>([\s\S]*?)<\/script\s*>/gi;
-  return [...html.matchAll(re)].map((m) => m[1] ?? '');
+  const blocks: string[] = [];
+  // Local, because both carry `lastIndex` and this walks them forward by hand.
+  const opening = /<script\b/gi;
+  const closing = /<\/script/gi;
+
+  let open: RegExpExecArray | null;
+  while ((open = opening.exec(html)) !== null) {
+    const tagEnd = html.indexOf('>', open.index);
+    if (tagEnd === -1) break; // an open tag that never ends: nothing usable follows
+
+    closing.lastIndex = tagEnd + 1;
+    const close = closing.exec(html);
+    if (!close) break; // no closing tag left, so no complete block left either
+
+    const type = TYPE_ATTRIBUTE.exec(html.slice(open.index + '<script'.length, tagEnd));
+    if (type) {
+      const value = type[1] ?? type[2] ?? type[3] ?? '';
+      if (isJsonLdType(value)) blocks.push(html.slice(tagEnd + 1, close.index));
+    }
+    opening.lastIndex = close.index;
+  }
+  return blocks;
+}
+
+/**
+ * Walked with `indexOf` and two anchored patterns rather than one regex spanning
+ * the whole element, for two separate reasons.
+ *
+ * Correctness: the type has to be decoded before it is compared. The value is
+ * not always literal — marmiton.org serves `type="application&#x2F;ld&#x2B;json"`,
+ * which a parser resolves and the old pattern, matching the raw text, did not.
+ * Seven percent of the corpus, reported as `no-structured-data`, which reads
+ * exactly like a page carrying nothing.
+ *
+ * Cost: `<script\b[^>]*...>([\s\S]*?)<\/script\s*>` restarts its scan at every
+ * `<script` that never closes, which is quadratic — 20k of them took about four
+ * seconds, and this parses pages fetched from anywhere. Each position here is
+ * found once, by a scan that only ever moves forward. Same shape as the
+ * `sanitizeText` fix in `guard`, and the same reason.
+ */
+const TYPE_ATTRIBUTE = /\btype\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s"'>]+))/i;
+
+/**
+ * Case-insensitively, because HTML puts `type` on the list of attributes whose
+ * values selectors match ASCII case-insensitively — so `[type="application/ld+json"]`,
+ * the DOM path's selector, matches that way too. The two paths have to agree.
+ */
+const isJsonLdType = (value: string): boolean =>
+  decodeEntities(value).trim().toLowerCase() === 'application/ld+json';
+
+/**
+ * Enough of an entity decoder for an attribute value. Only the type attribute
+ * goes through it, never the script body: inside a raw text element the parser
+ * does not decode entities, so the JSON has to reach `JSON.parse` exactly as written.
+ */
+function decodeEntities(value: string): string {
+  if (!value.includes('&')) return value;
+  return value.replace(ENTITY, (whole, hex: string, dec: string, name: string) => {
+    if (hex) return fromCodePoint(Number.parseInt(hex, 16), whole);
+    if (dec) return fromCodePoint(Number.parseInt(dec, 10), whole);
+    return NAMED[name.toLowerCase()] ?? whole;
+  });
+}
+
+const ENTITY = /&(?:#[xX]([0-9a-fA-F]{1,6})|#([0-9]{1,7})|([a-zA-Z][a-zA-Z0-9]{1,31}));/g;
+
+/** The ones that can turn up in a MIME type. A full table would be all weight, no reach. */
+const NAMED: Record<string, string> = {
+  amp: '&',
+  sol: '/',
+  plus: '+',
+  period: '.',
+  quot: '"',
+  apos: "'",
+};
+
+function fromCodePoint(code: number, fallback: string): string {
+  // Surrogates and out-of-range values throw, and a malformed entity in an
+  // attribute is not worth an exception on the way to a MIME comparison.
+  if (!Number.isInteger(code) || code < 0 || code > 0x10ffff) return fallback;
+  if (code >= 0xd800 && code <= 0xdfff) return fallback;
+  return String.fromCodePoint(code);
 }
 
 // ---------------------------------------------------------------------------

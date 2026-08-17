@@ -191,9 +191,12 @@ that no tool is available.
 
 **The network.** The pages come from the local corpus, and the server is handed their HTML
 rather than their url. `potentialAction` tools are switched off, so no trial can execute a search
-against a real site. The text extraction goes through the server package's own hardened parser,
-and the claim that it fetches nothing is asserted against a real socket, because happy-dom loads
-resources through a client of its own and stubbing `globalThis.fetch` proves nothing about it.
+against a real site. The text extraction goes through the server package's own parser, and the
+claim that it fetches nothing is asserted against a real socket rather than a stubbed
+`globalThis.fetch`: a DOM implementation that loads resources does so through a client of its
+own, so stubbing the global proves nothing about it. That assertion is part of why the parser is
+now `linkedom`, which carries no HTTP client in its dependency tree at all, rather than a browser
+emulator held in check by configuration.
 
 ## It runs on the subscription, not on the API
 
@@ -343,7 +346,7 @@ columns would move nothing: three milliseconds against a second and a half of mo
 The clock does contain something that should not be there, and it runs against the tools arm.
 Serving a page over stdio means the CLI spawns a Node process and waits for it: **650 ms from
 spawn to a usable tool list, of which about 44 ms is the work above** and the rest is process
-startup and loading happy-dom and the MCP SDK. That is inside the tools arm's measured duration
+startup and loading the parser and the MCP SDK. That is inside the tools arm's measured duration
 and nowhere in the text arm's — roughly **half of the 1.4-second gap between them is starting a
 process**, which is a fact about this harness and not about the library.
 

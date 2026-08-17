@@ -9,11 +9,12 @@
  * benchmark from the one that ran.
  *
  * The DOM comes from `@agenticschema/server`'s own `parseDocument`, and that is
- * not a convenience: happy-dom fetches what a page points at unless every
- * loading setting is turned off, and these are real pages carrying thousands of
- * stylesheet, image and iframe references. Building a Window here would be a
- * second copy of those settings to keep right, and the corpus has already been
- * through one run where a copy drifted and fired thousands of live requests at
+ * not a convenience: the parser under it is the one the library ships, so this
+ * measures what the library does rather than something standing next to it.
+ * These are real pages carrying thousands of stylesheet, image and iframe
+ * references, and building a parser here would be a second set of choices to
+ * keep right — the corpus has already been through one run where a copy of
+ * those choices drifted and fired thousands of live requests at
  * the sites it exists to leave alone.
  */
 import { BOILERPLATE_TYPES, extract, normalize } from '@agenticschema/core';
@@ -28,9 +29,8 @@ const STRUCTURED_LIMIT = 40_000;
 /**
  * Everything the harness needs from a page, out of a single parse.
  *
- * Parsing is the expensive part — happy-dom on a 300 KB shop page takes
- * seconds — and all three outputs are wanted together, so they are produced
- * together.
+ * Parsing is the expensive part — it is most of the way from a page to tools —
+ * and all three outputs are wanted together, so they are produced together.
  *
  *   text        what the `text` arm is given, and what the text-derived key is
  *               written from
@@ -39,21 +39,16 @@ const STRUCTURED_LIMIT = 40_000;
  */
 export async function readPage(html) {
   const document = parseDocument(html);
-  try {
-    // Read before the scripts are stripped: the JSON-LD lives inside them.
-    const graph = normalize(extract(document).nodes);
-    const structured = structuredOf(html, graph);
-    const mappable = mappableOf(graph);
 
-    for (const element of [...document.querySelectorAll(STRIPPED)]) element.remove();
-    const text = (document.body?.textContent ?? '').replace(/\s+/g, ' ').trim();
+  // Read before the scripts are stripped: the JSON-LD lives inside them.
+  const graph = normalize(extract(document).nodes);
+  const structured = structuredOf(html, graph);
+  const mappable = mappableOf(graph);
 
-    return { text, structured, mappable };
-  } finally {
-    // Otherwise every page parsed leaves a Window behind, and a run parses
-    // hundreds of them inside one process.
-    await document.defaultView?.happyDOM?.close?.();
-  }
+  for (const element of [...document.querySelectorAll(STRIPPED)]) element.remove();
+  const text = (document.body?.textContent ?? '').replace(/\s+/g, ' ').trim();
+
+  return { text, structured, mappable };
 }
 
 /** For callers that want only the text. */
