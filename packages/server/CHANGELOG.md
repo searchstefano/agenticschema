@@ -1,5 +1,94 @@
 # @agenticschema/server
 
+## 0.3.1
+
+### Patch Changes
+
+- 300e864: Read the ld+json type attribute the way a parser does, and stop building a DOM
+  for pages that have nothing to gain from one.
+
+  Two changes to the same seam, found while measuring where the time from a page
+  to tools actually goes. On the 177-page corpus it is 93% happy-dom parsing, 6.4%
+  walking the DOM for markup, and 0.6% everything else — normalizing, mapping,
+  guarding, all of it.
+
+  **The string path missed entity-encoded types.** `extract` scanned for a literal
+  `type="application/ld+json"`, but the attribute is not always written literally:
+  marmiton.org serves `type="application&#x2F;ld&#x2B;json"`. The DOM path decodes
+  it and finds the block; the string path compared raw text and found nothing, on
+  13 of 177 corpus pages. The only thing reported was `no-structured-data` at
+  `info` level, which is what a page with no markup at all looks like, so
+  `toTools(html)` returned an empty tool list and nothing said why. The type
+  attribute is now decoded before it is compared, and matched case-insensitively,
+  because HTML compares `type` that way in selectors and the two paths have to
+  agree. They now agree on all 177 pages.
+
+  **A DOM is only built when the page can repay it.** The new `needsDocument(html)`
+  answers whether anything on the page needs a real tree: microdata anchors on
+  `itemscope`, RDFa on `typeof`, and JSON-LD needs neither. `createServer` uses it
+  to pass the HTML string straight through when no DOM is warranted, which is 71%
+  of the corpus — roughly 2x overall, and 19-70x on pages carrying JSON-LD alone.
+  Pages with real RDFa, such as MDN's, are unaffected: they genuinely need the
+  parse. The check errs towards building a DOM, since a false positive costs one
+  parse that finds nothing while a false negative would drop an entity, and it does
+  not try to tell a schema.org `typeof` from another vocabulary's, because that
+  judgement needs the parsed value.
+
+  **Scanning is now linear.** The single pattern spanning `<script ...>…</script>`
+  restarted at every opening tag that never closed: 20k of them took about four
+  seconds, on input fetched from whatever URL the caller passed. Positions are now
+  found once, by a scan that only moves forward, which puts those cases under a
+  millisecond. Two of the three pathological inputs predate this release and one
+  came from reading the type out of every script tag rather than only the matching
+  ones; all three are closed, and a regression test sits beside the equivalent one
+  for `sanitizeText`.
+
+- 300e864: Parse with `linkedom` instead of `happy-dom`.
+
+  About four times faster on the pages that need a parser at all, and since
+  parsing is nearly all of the time from a page to tools, that is most of the
+  end-to-end difference. Together with only building a DOM when the page carries
+  microdata or RDFa, the corpus goes from 35.5 ms to 5.1 ms a page.
+
+  Speed is the smaller half. `happy-dom` emulates a browser, so it can load what a
+  page points at — that was closed by turning six settings off and bounding the
+  timers, which works, but it is a defence that has to be remembered and sits one
+  careless option away from coming back. `linkedom` is a parser and nothing else:
+  `htmlparser2`, `css-select` and `cssom` underneath it, no HTTP client anywhere in
+  the tree, no script evaluation, no timers to bound. The socket-level test
+  asserting that parsing fetches nothing now passes because there is nothing that
+  could fetch, rather than because six flags are set correctly. `happy-dom` is no
+  longer a dependency of this package; it stays a dev dependency, where simulating
+  a browser is the point.
+
+  Checked before the swap rather than after: all 177 corpus pages were run through
+  `toTools` with both parsers and compared on tool names, descriptions, input
+  schemas, annotations and diagnostic codes. All 177 agreed.
+
+  `parseDocument` also stopped throwing on input with no elements in it. `linkedom`
+  leaves such a document without a root element, and `head` and `body` then throw
+  rather than being absent — an empty response, a plain-text error page or a bare
+  doctype was enough to do it. It now builds the shell a browser would, keeping the
+  text of a page that is only text.
+
+  Dropping `happy-dom` also uncovered something it had been hiding. This package
+  uses `process`, `Buffer` and `node:http` across `cli.ts`, and never declared
+  `@types/node` for any of them — the types resolved only because `happy-dom`
+  depended on `@types/node` and npm nested a copy inside this workspace. Removing
+  it took them away and the declaration build stopped compiling a global it had
+  always used. `@types/node` is now a declared dev dependency and the tsconfig
+  names it outright, so the build no longer rests on what a runtime dependency
+  happens to drag in.
+
+  The tradeoff, stated plainly: `htmlparser2` is not a spec-compliant HTML5 tree
+  builder, so on badly broken markup it can build something a browser would not.
+  The corpus suite is what guards that, and `npm run test:corpus` is the gate for
+  any future change here.
+
+- Updated dependencies [300e864]
+  - @agenticschema/core@0.3.1
+  - @agenticschema/profiles@0.3.1
+
 ## 0.3.0
 
 ### Patch Changes
