@@ -3,7 +3,14 @@ import { normalize, type NormalizeOptions } from './normalize/index.js';
 import { DEFAULT_MAX_TOOLS, mapToTools, type MapOptions } from './map/index.js';
 import { mapActions, type ActionOptions } from './map/actions.js';
 import { guardTools, type GuardOptions } from './guard/index.js';
-import type { Diagnostic, EntityGraph, JsonSchemaObject, ToolDescriptor, ToolResult } from './types.js';
+import type {
+  Diagnostic,
+  EntityGraph,
+  JsonSchemaObject,
+  ToolDescriptor,
+  ToolExecutionContext,
+  ToolResult,
+} from './types.js';
 
 export interface PipelineOptions
   extends ExtractOptions,
@@ -26,7 +33,10 @@ export interface CustomTool {
   name: string;
   description: string;
   inputSchema?: JsonSchemaObject;
-  execute: (args: Record<string, unknown>) => ToolResult | Promise<ToolResult>;
+  execute: (
+    args: Record<string, unknown>,
+    context?: ToolExecutionContext
+  ) => ToolResult | Promise<ToolResult>;
   /** Defaults to `readOnlyHint: false`, since someone declaring a tool by hand usually means it to do something. */
   annotations?: Partial<ToolDescriptor['annotations']>;
 }

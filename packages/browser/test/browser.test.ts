@@ -1,20 +1,42 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { Window } from 'happy-dom';
 import type { Diagnostic, ToolDescriptor } from '@agenticschema/core';
-import { start, type Handle, type StartOptions } from '../src/index.js';
+import { start, startOnce, type Handle, type StartOptions } from '../src/index.js';
 
-/** A stand-in `document.modelContext`: it registers and honours the AbortSignal, like Chrome. */
+/**
+ * A stand-in `document.modelContext`: it registers and honours the AbortSignal,
+ * like Chrome, and like Chrome it rejects a name that is already live.
+ *
+ * That rejection is the point. This used to `live.set` over the top of an
+ * existing name, which is how a page registering every tool twice stayed green
+ * here while the real browser answered `InvalidStateError: Duplicate tool name`.
+ */
 function fakeModelContext() {
+  // `execute` takes the context Chrome has passed since 153. Typed with it here
+  // so a wrapper that quietly drops the second argument fails to compile rather
+  // than failing silently at the one moment cancellation is needed.
   const live = new Map<
     string,
-    { description: string; execute: (a: Record<string, unknown>) => unknown }
+    {
+      description: string;
+      execute: (a: Record<string, unknown>, ctx?: { signal?: AbortSignal }) => unknown;
+    }
   >();
   return {
     live,
     registerTool(
-      tool: { name: string; description: string; execute: (a: Record<string, unknown>) => unknown },
+      tool: {
+        name: string;
+        description: string;
+        execute: (a: Record<string, unknown>, ctx?: { signal?: AbortSignal }) => unknown;
+      },
       options?: { signal?: AbortSignal }
     ) {
+      if (live.has(tool.name)) {
+        return Promise.reject(
+          Object.assign(new Error('Duplicate tool name'), { name: 'InvalidStateError' })
+        );
+      }
       live.set(tool.name, tool);
       options?.signal?.addEventListener('abort', () => live.delete(tool.name));
       return Promise.resolve();
@@ -313,5 +335,182 @@ describe('a remap that throws', () => {
       process.off('unhandledRejection', unhandled);
       warn.mockRestore();
     }
+  });
+});
+
+// ---------------------------------------------------------------------------
+
+/** Always rejects, the way WebMCP does when the name is already taken. */
+function refusingModelContext() {
+  return {
+    registerTool: () =>
+      Promise.reject(Object.assign(new Error('Duplicate tool name'), { name: 'InvalidStateError' })),
+  };
+}
+
+describe('registering twice on one page', () => {
+  let extra: Handle | undefined;
+  afterEach(() => {
+    extra?.stop();
+    extra = undefined;
+  });
+
+  it('a second copy of the script does not register the names the first one owns', async () => {
+    setPage(PRODUCT);
+    const api = fakeModelContext();
+    const unhandled = vi.fn();
+    process.on('unhandledRejection', unhandled);
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      // What a page gets from a hand-written tag plus a tag manager's: one
+      // document, one modelContext, the bundle evaluated twice. The CDN build is
+      // an IIFE, so the URL-keyed dedupe that saves a module does not apply.
+      handle = await startOnce({ document, modelContext: api, watch: false });
+      extra = await startOnce({ document, modelContext: api, watch: false });
+
+      await new Promise((r) => setTimeout(r, 20));
+      expect([...api.live.keys()]).toEqual(['get_product', 'get_product_offer']);
+      expect(unhandled).not.toHaveBeenCalled();
+    } finally {
+      process.off('unhandledRejection', unhandled);
+      warn.mockRestore();
+    }
+  });
+
+  it('hands the second copy the first one handle rather than a dead one', async () => {
+    setPage(PRODUCT);
+    const api = fakeModelContext();
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      handle = await startOnce({ document, modelContext: api, watch: false });
+      extra = await startOnce({ document, modelContext: api, watch: false });
+      // Not an inert stand-in: whoever holds the second handle can still read the
+      // tools and still stop the adapter.
+      expect(extra.tools().map((t) => t.name)).toEqual(['get_product', 'get_product_offer']);
+      expect(warn).toHaveBeenCalled();
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
+  it('two refreshes racing on the same markup register one batch, not two', async () => {
+    setPage(PRODUCT);
+    const api = fakeModelContext();
+    const unhandled = vi.fn();
+    process.on('unhandledRejection', unhandled);
+    try {
+      handle = await start({ document, modelContext: api, watch: false });
+
+      // The watcher fires while a remap is still waiting on the profiles chunk.
+      // Both calls saw a fingerprint that the first had not recorded yet.
+      setPage(PRODUCT.replace('129.90', '99.00'));
+      await Promise.all([handle.refresh(), handle.refresh()]);
+
+      await new Promise((r) => setTimeout(r, 20));
+      expect([...api.live.keys()]).toEqual(['get_product', 'get_product_offer']);
+      expect(unhandled).not.toHaveBeenCalled();
+    } finally {
+      process.off('unhandledRejection', unhandled);
+    }
+  });
+
+  it('reports a refused registration instead of letting it escape to the console', async () => {
+    setPage(PRODUCT);
+    const unhandled = vi.fn();
+    process.on('unhandledRejection', unhandled);
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      handle = await start({ document, modelContext: refusingModelContext(), watch: false });
+      await new Promise((r) => setTimeout(r, 20));
+
+      // The page owner cannot act on an uncaught InvalidStateError in the console.
+      expect(unhandled).not.toHaveBeenCalled();
+      expect(handle.diagnostics().map((d) => d.code)).toContain('register-failed');
+    } finally {
+      process.off('unhandledRejection', unhandled);
+      warn.mockRestore();
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
+
+const SEARCH_PAGE = JSON.stringify({
+  '@context': 'https://schema.org',
+  '@type': 'WebSite',
+  name: 'Negozio',
+  potentialAction: {
+    '@type': 'SearchAction',
+    target: { '@type': 'EntryPoint', urlTemplate: 'https://negozio.test/cerca?q={q}' },
+    'query-input': 'required name=q',
+  },
+});
+
+describe('cancelling work the page has moved on from', () => {
+  it('aborts an action still in flight when the adapter stops', async () => {
+    setPage(SEARCH_PAGE);
+    const api = fakeModelContext();
+    let aborted = false;
+    const fetchImpl = (_url: string | URL, init?: RequestInit) =>
+      new Promise<Response>((_resolve, reject) => {
+        init?.signal?.addEventListener('abort', () => {
+          aborted = true;
+          reject(new Error('aborted'));
+        });
+      });
+
+    handle = await start({
+      document,
+      modelContext: api,
+      baseUrl: 'https://negozio.test/',
+      fetchImpl: fetchImpl as unknown as typeof fetch,
+      watch: false,
+    });
+
+    const search = [...api.live.entries()].find(([name]) => name.startsWith('search_'))![1];
+    // Called the way Chrome 153 calls it, with no execution signal of its own:
+    // the only thing that can still stop this request is the batch being retired.
+    const pending = search.execute({ q: 'zaino' }) as Promise<{ isError?: boolean }>;
+
+    handle.stop();
+    handle = undefined;
+
+    const result = await pending;
+    // Until Chrome 153 dropping the tool cancelled this for free. It does not
+    // any more, so the adapter has to carry the abort down to the request.
+    expect(aborted).toBe(true);
+    expect(result.isError).toBe(true);
+  });
+
+  it('honours the execution signal Chrome passes in', async () => {
+    setPage(SEARCH_PAGE);
+    const api = fakeModelContext();
+    let aborted = false;
+    const fetchImpl = (_url: string | URL, init?: RequestInit) =>
+      new Promise<Response>((_resolve, reject) => {
+        init?.signal?.addEventListener('abort', () => {
+          aborted = true;
+          reject(new Error('aborted'));
+        });
+      });
+
+    handle = await start({
+      document,
+      modelContext: api,
+      baseUrl: 'https://negozio.test/',
+      fetchImpl: fetchImpl as unknown as typeof fetch,
+      watch: false,
+    });
+
+    const search = [...api.live.entries()].find(([name]) => name.startsWith('search_'))![1];
+    const controller = new AbortController();
+    const pending = search.execute({ q: 'zaino' }, { signal: controller.signal }) as Promise<{
+      isError?: boolean;
+    }>;
+
+    controller.abort();
+    const result = await pending;
+    expect(aborted).toBe(true);
+    expect(result.isError).toBe(true);
   });
 });

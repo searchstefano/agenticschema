@@ -185,7 +185,7 @@ function buildActionTool(args: {
     },
     // Idempotent by construction, but it touches the network, so openWorld stays true.
     annotations: { readOnlyHint: true, openWorldHint: true },
-    execute: async (input) => {
+    execute: async (input, context) => {
       const url = expand(urlTemplate, input);
       // Checked again AFTER expansion: a hostile value must not be able to move the destination.
       const check = safeDestination(url, options);
@@ -201,7 +201,11 @@ function buildActionTool(args: {
       try {
         const response = await doFetch(check.url, {
           headers: { accept: 'application/json, text/html' },
-          signal: AbortSignal.timeout(timeoutMs),
+          // The caller's signal as well as the timeout. From Chrome 153 taking a
+          // tool out of the registry no longer cancels what it is already doing,
+          // so an abandoned request — a route the user has left, a page that
+          // remapped — keeps running unless the cancellation is carried here.
+          signal: combineSignals([context?.signal, AbortSignal.timeout(timeoutMs)]),
           // The destination is vetted twice, and `fetch` follows redirects by
           // default, which walks past both checks: a 3xx from the page's own
           // origin lands anywhere it likes. On the server that is a request onto
@@ -222,6 +226,23 @@ function buildActionTool(args: {
     },
     source: { kind: 'action', entityId, entityType: type },
   };
+}
+
+
+/**
+ * The caller's cancellation and the timeout as a single signal. The timeout is
+ * the one that must survive: it is the only bound on a request whose caller
+ * never cancels, which is every call arriving through the MCP server adapter,
+ * whose SDK context carries no signal to pass on.
+ */
+function combineSignals(signals: Array<AbortSignal | undefined>): AbortSignal {
+  const live = signals.filter((signal): signal is AbortSignal => signal !== undefined);
+  if (live.length === 1) return live[0] as AbortSignal;
+  // `AbortSignal.any` is Chrome 116 and Node 20.3. Below that the timeout alone
+  // still bounds the request, which is worth more than refusing to run at all.
+  return typeof AbortSignal.any === 'function'
+    ? AbortSignal.any(live)
+    : (live[live.length - 1] as AbortSignal);
 }
 
 /**

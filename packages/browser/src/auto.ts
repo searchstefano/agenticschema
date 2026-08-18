@@ -1,4 +1,4 @@
-import { start, type Handle, type StartOptions } from './index.js';
+import { startOnce, type Handle, type StartOptions } from './index.js';
 
 export * from './index.js';
 
@@ -30,8 +30,16 @@ function optionsFromScriptTag(): StartOptions {
   };
 }
 
-/** Exposed so the adapter can be stopped or inspected from the console. */
-export const ready: Promise<Handle> = start(optionsFromScriptTag());
+/**
+ * Exposed so the adapter can be stopped or inspected from the console.
+ *
+ * Through `startOnce`, because this file is the entry point of an IIFE bundle
+ * and a page can easily end up with two of them — a hand-written tag and a tag
+ * manager's, often pinned to two different versions, which rules out any
+ * dedupe by URL. Both evaluate, and the second one asked the WebMCP surface for
+ * names the first already held.
+ */
+export const ready: Promise<Handle> = startOnce(optionsFromScriptTag());
 
 // Whatever goes wrong here, it must not take the host page down with it.
 void ready.catch((err: unknown) => {

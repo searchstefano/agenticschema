@@ -19,10 +19,24 @@ interface ModelContext {
       name: string;
       description: string;
       inputSchema: unknown;
-      execute: (args: Record<string, unknown>) => unknown;
+      // Two arguments since Chrome 153: the input, and a per-execution context
+      // whose signal fires when the user or the agent cancels the call.
+      execute: (args: Record<string, unknown>, context?: { signal?: AbortSignal }) => unknown;
     },
     options?: { signal?: AbortSignal }
-  ): unknown;
+  ): Promise<void>;
+}
+
+/**
+ * The two cancellations a running tool answers to, as one signal: the agent
+ * calling off this execution, and the adapter retiring the batch the tool
+ * belongs to. The second used to come free — until Chrome 153, dropping a tool
+ * from the registry cancelled whatever it had in flight. It no longer does, so a
+ * remap or a `stop()` now has to reach the work through here or not at all.
+ */
+function executionSignal(execution: AbortSignal | undefined, batch: AbortSignal): AbortSignal {
+  if (!execution) return batch;
+  return typeof AbortSignal.any === 'function' ? AbortSignal.any([execution, batch]) : execution;
 }
 
 export interface StartOptions extends PipelineOptions {
@@ -149,9 +163,21 @@ export async function start(options: StartOptions = {}): Promise<Handle> {
     if (stopped) return;
     const current = snapshot();
     if (current === lastSnapshot) return;
+    // Claimed here, before the first await, and not at the end. Recorded only
+    // after the profiles chunk had arrived, this fingerprint was still unset
+    // when the watcher fired mid-flight: the second refresh walked straight past
+    // the guard above and registered the identical batch a second time, which is
+    // what WebMCP answers with `Duplicate tool name`.
+    const previous = lastSnapshot;
+    lastSnapshot = current;
 
     controller?.abort(); // the only way to unregister: WebMCP has no unregisterTool
-    controller = new AbortController();
+    // Kept in a local as well as in the shared slot. Read back after the await,
+    // `controller` could already belong to a later remap, and this batch went in
+    // against that batch's signal: the abort meant to retire these tools had
+    // fired on a controller nothing was registered against, so they never left.
+    const batch = new AbortController();
+    controller = batch;
 
     let result;
     try {
@@ -161,19 +187,24 @@ export async function start(options: StartOptions = {}): Promise<Handle> {
         ...(baseUrl ? { baseUrl } : {}),
       });
     } catch (err) {
-      // `lastSnapshot` is deliberately left alone. Recording this markup as done
-      // before the work succeeded froze the adapter for the rest of the session:
-      // every later refresh found the fingerprint already stored and returned
-      // without doing anything, while the tools went on describing the page the
-      // user had left.
-      registered = [];
-      reported = [
-        { level: 'error', code: 'remap-failed', message: `remap failed: ${String(err)}` },
-      ];
+      // The fingerprint goes back. Leaving this markup recorded as done froze
+      // the adapter for the rest of the session: every later refresh found it
+      // already stored and returned without doing anything, while the tools went
+      // on describing the page the user had left.
+      if (controller === batch) {
+        lastSnapshot = previous;
+        registered = [];
+        reported = [
+          { level: 'error', code: 'remap-failed', message: `remap failed: ${String(err)}` },
+        ];
+      }
       throw err;
     }
 
-    lastSnapshot = current;
+    // Superseded while this one waited, or stopped outright. Either way these
+    // tools describe a page that is no longer the one in front of the user.
+    if (stopped || controller !== batch) return;
+
     registered = result.tools;
     // Replaced, never appended: these describe the page as it is now, and a
     // single-page app remaps on every route change.
@@ -182,15 +213,32 @@ export async function start(options: StartOptions = {}): Promise<Handle> {
     for (const tool of result.tools) {
       // Not awaited. The registerTool promise is not on the critical path, and an
       // agent that has not connected yet must not hold up the page.
-      void api.registerTool(
+      const registration = api.registerTool(
         {
           name: tool.name,
           description: tool.description,
           inputSchema: tool.inputSchema,
-          execute: (args: Record<string, unknown>) => tool.execute(args ?? {}),
+          execute: (args: Record<string, unknown>, context?: { signal?: AbortSignal }) =>
+            tool.execute(args ?? {}, { signal: executionSignal(context?.signal, batch.signal) }),
         },
-        { signal: controller.signal }
+        { signal: batch.signal }
       );
+      // Not on the critical path is not the same as unobserved. WebMCP refuses a
+      // name that is already live, and with nothing attached to the promise that
+      // refusal reached the host page as an uncaught error: noise in someone
+      // else's console, carrying none of the context needed to act on it.
+      void Promise.resolve(registration).catch((err: unknown) => {
+        if (controller !== batch) return;
+        reported = [
+          ...reported,
+          {
+            level: 'warn',
+            code: 'register-failed',
+            message: `${tool.name} was refused by the WebMCP surface: ${String(err)}`,
+          },
+        ];
+        console.warn(`[agenticschema] ${tool.name} was refused by the WebMCP surface:`, err);
+      });
     }
   }
 
@@ -226,6 +274,51 @@ export async function start(options: StartOptions = {}): Promise<Handle> {
       for (const off of teardown) off();
     },
   };
+}
+
+/**
+ * The property the latch hangs on. A plain string, deliberately: two copies of
+ * this bundle are two module scopes with two `Symbol()`s, and each would find
+ * only its own. A name both copies spell the same way is what makes the second
+ * one recognise the first.
+ */
+const STARTED = '__agenticschemaStarted';
+
+type LatchedDocument = Document & { [STARTED]?: Promise<Handle> };
+
+/**
+ * `start()`, but at most once per document.
+ *
+ * The CDN build is an IIFE, which the browser does not deduplicate the way it
+ * deduplicates a module by URL. A page carrying the script twice — a
+ * hand-written tag and a tag manager's copy, often on two different version
+ * specifiers — evaluates the bundle twice, and the second `start()` finds the
+ * `document.modelContext` the first one filled and asks for names it already
+ * owns. WebMCP refuses those with `Duplicate tool name`.
+ *
+ * The latch lives on the document rather than in module scope for the same
+ * reason: each evaluation gets a fresh scope and would see its own empty slot.
+ */
+export function startOnce(options: StartOptions = {}): Promise<Handle> {
+  const doc = (options.document ?? globalThis.document) as LatchedDocument | undefined;
+  if (!doc) return start(options);
+
+  const running = doc[STARTED];
+  if (running) {
+    // Out loud. The second tag's data attributes are being ignored, and silence
+    // here would leave whoever set them looking for why they had no effect.
+    console.warn(
+      '[agenticschema] already started on this document. Ignoring the duplicate script tag ' +
+        'and its configuration: remove one of the two to silence this.'
+    );
+    return running;
+  }
+
+  const started = start(options);
+  // Non-enumerable: this is the adapter's own bookkeeping, and it has no
+  // business turning up in anything that walks the document's own properties.
+  Object.defineProperty(doc, STARTED, { value: started, configurable: true, writable: true });
+  return started;
 }
 
 /**

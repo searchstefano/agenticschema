@@ -397,3 +397,62 @@ describe('defineTool', () => {
     expect(await run(tools.find((t) => t.name === 'get_product')!)).toBe('dai sistemi interni');
   });
 });
+
+// ---------------------------------------------------------------------------
+
+describe('actions: cancelling an execution in flight', () => {
+  /** What Chrome hands `execute` from 153 on, and what the fetch has to honour. */
+  const searchTool = (fetchImpl: unknown) =>
+    toTools(searchPage(`${ORIGIN}/cerca?q={search_term_string}`), {
+      ...opts,
+      fetchImpl: fetchImpl as typeof fetch,
+    }).tools.find((t) => t.source.kind === 'action')!;
+
+  it('passes the caller signal down to the request', async () => {
+    const seen: Array<AbortSignal | undefined> = [];
+    const search = searchTool(async (_url: string | URL, init?: RequestInit) => {
+      seen.push(init?.signal ?? undefined);
+      return new Response('ok');
+    });
+
+    const controller = new AbortController();
+    await search.execute({ search_term_string: 'zaino' }, { signal: controller.signal });
+
+    // Not the caller's signal as handed in: the timeout still has to apply, so
+    // what reaches `fetch` is the two of them combined.
+    expect(seen[0]).toBeInstanceOf(AbortSignal);
+    expect(seen[0]!.aborted).toBe(false);
+    controller.abort();
+    expect(seen[0]!.aborted).toBe(true);
+  });
+
+  it('aborts a request that is still running when the caller gives up', async () => {
+    const search = searchTool(
+      (_url: string | URL, init?: RequestInit) =>
+        new Promise((_resolve, reject) => {
+          init?.signal?.addEventListener('abort', () => reject(new Error('aborted')));
+        })
+    );
+
+    const controller = new AbortController();
+    const pending = search.execute({ search_term_string: 'zaino' }, { signal: controller.signal });
+    controller.abort();
+
+    // A failed request is reported, not thrown: the agent gets an answer either way.
+    const result = await pending;
+    expect(result.isError).toBe(true);
+  });
+
+  it('still bounds the request when the caller passes no signal at all', async () => {
+    const seen: Array<AbortSignal | undefined> = [];
+    const search = searchTool(async (_url: string | URL, init?: RequestInit) => {
+      seen.push(init?.signal ?? undefined);
+      return new Response('ok');
+    });
+
+    // The server adapter has no signal to give: this SDK's tool context carries
+    // none. The timeout is the only bound left, and it has to survive.
+    await search.execute({ search_term_string: 'zaino' });
+    expect(seen[0]).toBeInstanceOf(AbortSignal);
+  });
+});

@@ -566,7 +566,15 @@ handle.stop();          // unregister everything and stop watching
 ### How watching works
 
 WebMCP has no `unregisterTool`, so the adapter registers every tool with an `AbortSignal` and
-aborts the whole batch to replace it. A remap is triggered by:
+aborts the whole batch to replace it.
+
+Since Chrome 153 that abort retires the tools but no longer cancels what they already had in
+flight, so the adapter carries the cancellation itself: every `execute` runs under the batch's
+signal combined with the per-execution signal WebMCP passes in, and an action's `fetch` is bound
+by both plus its own timeout. A route change therefore stops the request the previous route
+started, which until 153 came free with the unregistration.
+
+A remap is triggered by:
 
 - a `MutationObserver` on `ld+json` script blocks and on the `itemscope`, `itemprop`, `itemtype`,
 `typeof` and `property` attributes,
@@ -706,6 +714,40 @@ problems: a malformed page produces fewer tools and a diagnostic, never an excep
 | `field-truncated`    | info  | A value was cut to fit `maxPayloadBytes` or `maxDescriptionLength`. |
 | `remap-failed`       | error | The browser adapter could not rebuild the tools. The page stays remappable, and the next change retries. |
 | `no-webmcp-surface`  | warn  | No `document.modelContext` and the polyfill did not load, so nothing was registered. |
+| `register-failed`    | warn  | The WebMCP surface refused the tool. Nearly always a second copy of the adapter on the page holding that name already: see [Two copies on one page](#two-copies-on-one-page). |
+
+### Two copies on one page
+
+`InvalidStateError: Duplicate tool name` in the console means the adapter is
+running twice on the same document. WebMCP refuses a name that is already live,
+and the second copy is asking for every name the first one registered.
+
+The usual cause is one script tag written by hand and a second one injected by a
+tag manager — Zaraz, Google Tag Manager — often pinned to different versions:
+
+```html
+<script src="https://cdn.jsdelivr.net/npm/@agenticschema/browser@0.1"></script>
+<!-- and, from the tag manager, invisible in the page source: -->
+<script src="https://cdn.jsdelivr.net/npm/@agenticschema/browser@latest"></script>
+```
+
+Two URLs are two downloads and two executions. Nothing dedupes them: the CDN
+build is an IIFE, so it does not get the module map's URL-keyed dedupe, and the
+two specifiers would not match under it anyway.
+
+From 0.3.1 the script-tag entry point latches on the document, so a second copy
+of that version or later reuses the first one's handle, registers nothing, and
+says so with a console warning. **Delete one of the two tags regardless.** The
+latch cannot help when the copy that loads first predates it, and the surviving
+tag should be the one whose `data-` attributes you actually want — the ignored
+copy's configuration is dropped, not merged.
+
+To check a live page:
+
+```js
+[...document.querySelectorAll('script[src]')].map((s) => s.src).filter((s) => s.includes('agenticschema'))
+```
+
 
 
 The last two come from the browser adapter rather than the pipeline. They exist because an

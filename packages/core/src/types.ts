@@ -16,12 +16,17 @@ export type DiagnosticCode =
   | 'action-skipped'
   | 'tool-limit'
   | 'field-truncated'
-  // The two below are raised by an adapter rather than by the pipeline. They
+  // The three below are raised by an adapter rather than by the pipeline. They
   // live here anyway: `Diagnostic` is the one vocabulary a caller reads, and an
   // adapter with no way to say "I could not do my job" says nothing at all,
   // which reads exactly like a page that simply had no markup.
   | 'remap-failed'
-  | 'no-webmcp-surface';
+  | 'no-webmcp-surface'
+  // The tool was built and then turned away by the WebMCP surface itself — most
+  // often because the page is running two copies of the adapter and the name was
+  // already taken. The tool list cannot show this: the name is there, registered
+  // by somebody else, describing whatever that other copy mapped.
+  | 'register-failed';
 
 export interface Diagnostic {
   level: 'info' | 'warn' | 'error';
@@ -87,6 +92,20 @@ export interface JsonSchemaObject {
   additionalProperties: false;
 }
 
+/**
+ * The second argument every tool execution receives.
+ *
+ * WebMCP hands one to `execute` from Chrome 153 on, and from that release
+ * unregistering a tool no longer cancels whatever it already had in flight —
+ * so an adapter that wants a remap or a `stop()` to stop real work has to carry
+ * this signal down to it rather than rely on the registration being torn down.
+ * Optional throughout: a caller with nothing to cancel, such as the MCP server
+ * adapter whose SDK context carries no signal, simply passes nothing.
+ */
+export interface ToolExecutionContext {
+  signal?: AbortSignal;
+}
+
 export interface ToolResult {
   content: Array<{ type: 'text'; text: string }>;
   isError?: boolean;
@@ -104,7 +123,10 @@ export interface ToolDescriptor {
     readOnlyHint: boolean;
     openWorldHint: boolean;
   };
-  execute: (args: Record<string, unknown>) => ToolResult | Promise<ToolResult>;
+  execute: (
+    args: Record<string, unknown>,
+    context?: ToolExecutionContext
+  ) => ToolResult | Promise<ToolResult>;
   source: {
     kind: 'read' | 'action' | 'custom';
     entityId?: string;

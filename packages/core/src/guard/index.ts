@@ -111,8 +111,12 @@ export function guardTools(
       return {
         ...tool,
         description,
-        execute: async (args) => {
-          const result = await tool.execute(args);
+        // The context is forwarded, not dropped. This wrapper sits between every
+        // tool and its caller, so swallowing the second argument here quietly
+        // disarmed cancellation for the whole toolset: the signal was passed in
+        // and simply never arrived.
+        execute: async (args, context) => {
+          const result = await tool.execute(args, context);
           return {
             ...result,
             content: result.content.map((block) => ({
