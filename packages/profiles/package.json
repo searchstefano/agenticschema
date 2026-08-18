@@ -1,6 +1,6 @@
 {
   "name": "@agenticschema/profiles",
-  "version": "0.3.1",
+  "version": "0.4.0",
   "type": "module",
   "description": "Type profiles and the Schema.org type hierarchy for @agenticschema/core.",
   "license": "MIT",
@@ -17,7 +17,7 @@
     "dist"
   ],
   "dependencies": {
-    "@agenticschema/core": "0.3.1"
+    "@agenticschema/core": "0.4.0"
   },
   "scripts": {
     "build": "tsup src/index.ts --format esm --clean && tsc -p tsconfig.build.json",
