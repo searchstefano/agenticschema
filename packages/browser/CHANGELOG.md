@@ -1,5 +1,61 @@
 # @agenticschema/browser
 
+## 0.4.0
+
+### Minor Changes
+
+- 7c15c1f: Carry cancellation through to the work a tool actually does, keeping up with
+  WebMCP as of Chrome 153.
+
+  `ToolDescriptor.execute` and `CustomTool.execute` take an optional second
+  argument, `{ signal }`. The parameter is optional in both directions, so a tool
+  that ignores it still compiles and `defineTool` is unchanged for anyone.
+
+  The signal is what an action's `fetch` is now bound by, alongside its existing
+  timeout. This matters because from Chrome 153 taking a tool out of the registry
+  no longer cancels its in-flight executions: without this, a single-page app that
+  changed route left the previous route's request running to timeout — in the
+  browser, with the user's cookies on it. The browser adapter combines the signal
+  WebMCP passes with the one belonging to the registered batch, so both a remap
+  and `stop()` reach the request.
+
+  Also fixed: `guardTools` wrapped every tool's `execute` and dropped the second
+  argument, which would have disarmed cancellation for the entire toolset no
+  matter who passed a signal in.
+
+  `ModelContext.registerTool` is typed as returning `Promise<void>`, matching
+  Chrome 151. No change was needed for `navigator.modelContext` being deprecated in
+  Chrome 150: the adapter has always read `document.modelContext` first and treated
+  `navigator` as the fallback.
+
+### Patch Changes
+
+- 7c15c1f: Stop the adapter registering the same tools twice, which WebMCP answers with
+  `InvalidStateError: Duplicate tool name`.
+
+  Three separate routes led there, all of them fixed:
+
+  - **Two copies on one page.** The CDN build is an IIFE, so a page carrying the
+    script twice — typically a hand-written tag plus a tag manager's, pinned to
+    different versions — evaluated it twice and started twice. The script-tag entry
+    point now latches on the document: a second copy reuses the first one's handle,
+    registers nothing, and warns that its configuration is being ignored.
+  - **Two remaps overlapping.** `refresh()` recorded the markup fingerprint only
+    after the profiles chunk had loaded, so a remap arriving in that window walked
+    past the "nothing changed" guard and re-registered the whole batch. The
+    fingerprint is now claimed up front, and a superseded remap bows out instead of
+    registering. The same fix stops a batch being registered against a later
+    batch's `AbortSignal`, which had been leaving tools that no abort could retire.
+  - **A refused registration escaping.** `registerTool` was called without anything
+    attached to its promise, so a rejection surfaced in the host page's console as
+    an uncaught error. It is now reported as a `register-failed` diagnostic, a new
+    `DiagnosticCode`.
+
+- Updated dependencies [7c15c1f]
+- Updated dependencies [7c15c1f]
+  - @agenticschema/core@0.4.0
+  - @agenticschema/profiles@0.4.0
+
 ## 0.3.1
 
 ### Patch Changes
