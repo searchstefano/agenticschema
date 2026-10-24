@@ -48,15 +48,28 @@ These are enforced in `@agenticschema/core`, so both adapters inherit them, and 
   evaluation, script, stylesheet, iframe and image loading, and bounds timers. The regression test
   asserts against a real socket: happy-dom loads resources through its own client, so a test that
   stubs `globalThis.fetch` passes while the leak is wide open.
+- **Machine-Twin discovery & Live Search SSRF containment.** `discoverMachineTwins()` is strictly
+  declarative: it reports candidate JSON/API/feed URLs found in the page's markup and never issues
+  network requests on its own. Every discovered Machine Twin URL is filtered through
+  `isSafeMachineTwinUrl`, which rejects non-`http(s)` schemes, embedded credentials, private RFC
+  1918 / loopback / link-local addresses (`localhost`, `127.0.0.0/8`, `10.0.0.0/8`,
+  `172.16.0.0/12`, `192.168.0.0/16`, `169.254.0.0/16`, `[::1]`), and cross-origin hosts when
+  `baseUrl` is known. In `--live` server mode (`createLiveSearchServer`), `assertPublicUrl`
+  enforces the same SSRF blocklist before any live fetch, with bounded timeouts, byte caps, and
+  zero cookie/credential forwarding.
 
 ## What it explicitly does NOT defend against
 
 - **A hostile site owner.** The protections assume an honest page whose *content* may be tainted.
   If the site itself is adversarial, it controls the markup, the `defineTool` calls, and the
   same-origin endpoints the action tools reach. Nothing here helps.
-- **Truthfulness.** Nothing verifies that a page's structured data matches what it displays. A
-  site can advertise one price in its markup and another to humans. This library faithfully
-  reports the markup.
+- **Truthfulness vs. cross-representation consistency.** `toContext()` cross-checks structured
+  claims against visible DOM text (`[✓S1]` when consistent vs. `[~S2]` / `[!CONFLICT]` when
+  uncorroborated or divergent), which catches template drift and basic SEO cloaking. However,
+  intra-page consistency ($C_{\text{agreement}} \le 0.92$) only proves that two representations on
+  the same origin agree — if a site publishes the same inaccurate claim in both JSON-LD and visible
+  HTML, single-page analysis cannot detect it. Use multi-origin `fuseUrls()` (`[✓✓S0]`) when
+  independent cross-domain corroboration is required.
 - **Ambient authority.** In the browser, action tools run inside the page and therefore inside the
   user's authenticated session. An agent invoking one acts with the user's cookies. Same-origin
   is a containment boundary, not an authorisation check.

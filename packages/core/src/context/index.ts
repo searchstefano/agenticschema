@@ -15,13 +15,21 @@ export interface FieldProvenance {
 }
 
 export type EvidenceTier =
+  | 'S0:cross-origin'
   | 'S1:corroborated'
   | 'S2:structured'
   | 'S3:tabular'
   | 'S4:prose'
   | 'S5:meta';
 
-export type EvidenceSigil = '[✓S1]' | '[~S2]' | '[#S3]' | '[§S4]' | '[~S5]' | '[!CONFLICT]';
+export type EvidenceSigil =
+  | '[✓✓S0]'
+  | '[✓S1]'
+  | '[~S2]'
+  | '[#S3]'
+  | '[§S4]'
+  | '[~S5]'
+  | '[!CONFLICT]';
 
 export interface EvidenceNode {
   /** Subject entity name or identifier. */
@@ -30,7 +38,7 @@ export interface EvidenceNode {
   predicate: string;
   /** Normalized scalar or atomic claim value. */
   value: string;
-  /** Epistemic hierarchy tier (`S1:corroborated` > `S3:tabular` > `S2:structured` > `S4:prose` > `S5:meta`). */
+  /** Epistemic hierarchy tier (`S0:cross-origin` > `S1:corroborated` > `S3:tabular` > `S2:structured` > `S4:prose` > `S5:meta`). */
   tier: EvidenceTier;
   /** Ultra-compact 2-token inline sigil for LLM attention binding without JSON wrapper bloat. */
   sigil: EvidenceSigil;
@@ -41,30 +49,90 @@ export interface EvidenceNode {
     field: string;
     verifiedInText: boolean;
   };
-  /** Multi-dimensional epistemic confidence ($C(f), T(f), U(f,q)$). */
+  /**
+   * 4D Epistemic Confidence Vector $C = (C_{\text{extraction}}, C_{\text{agreement}}, C_{\text{source}}, C_{\text{freshness}})$
+   * plus query-driven utility $U(f,q)$.
+   * Note: `[✓S1]` represents intra-page cross-representation consistency ($C_{\text{agreement}} = 0.90$),
+   * never 1.0 ontological truth on a single page.
+   */
   confidence: {
-    /** Parser/structural extraction reliability ($0..1$). */
+    /** Parser/structural extraction reliability ($C_{\text{extraction}} \in [0, 1]$). */
     extraction: number;
-    /** Corroboration/source reliability weight ($C(f) \in [0, 1]$). */
+    /** Intra-page cross-representation consistency ($C_{\text{agreement}} \in [0, 0.92]$; alias `corroboration`). */
+    agreement: number;
+    /** Alias for `agreement` (intra-page cross-representation consistency). */
     corroboration: number;
-    /** Temporal freshness factor ($T(f) \in [0, 1]$). */
+    /** Origin/domain authority prior ($C_{\text{source}} \in [0, 1]$). */
+    source: number;
+    /** Temporal freshness factor ($C_{\text{freshness}} \in [0, 1]$). */
     freshness: number;
     /** Combined query-driven epistemic utility $U(f,q) = R(f,q) \cdot C(f) \cdot T(f) \cdot N(f)$. */
     utility: number;
   };
 }
 
+export type FacetStatus =
+  | 'SATISFIED'
+  | 'NOT_PUBLISHED'
+  | 'NOT_FOUND'
+  | 'CONFLICTED'
+  | 'UNVERIFIABLE';
+
+export interface FacetDiagnostic {
+  /** Orthogonal query facet identifier (e.g. `price`, `weight`, `warranty`). */
+  facet: string;
+  /**
+   * Epistemic status distinguishing absence from non-existence:
+   * - `SATISFIED`: $\text{Evidence}(f_i) \ge \tau_i$ with no active discrepancy.
+   * - `NOT_PUBLISHED`: Page publishes a structured entity, but omits this schema property from markup/specs.
+   * - `NOT_FOUND`: Not found in structured data, specs, or inspected prose.
+   * - `CONFLICTED`: Contradictory values detected across representations or sources.
+   * - `UNVERIFIABLE`: Mentioned, but epistemic confidence is below $\tau_i$ (e.g. expired offer).
+   */
+  status: FacetStatus;
+  /** Minimum epistemic threshold $\tau_i$ required for this facet. */
+  threshold: number;
+  /** Highest epistemic confidence achieved for this facet ($0..1$). */
+  maxConfidence: number;
+  /** Best supporting inline sigil (`[✓S1]`, `[#S3]`, `[§S4]`, `[!CONFLICT]`). */
+  sigil?: EvidenceSigil;
+}
+
 export interface EpistemicSufficiency {
   /** Decomposed orthogonal sub-questions / requirements extracted from `query`. */
   facets: string[];
-  /** Query facets satisfied by corroborated or structured evidence on the page(s). */
+  /** Query facets where $\text{Evidence}(f_i) \ge \tau_i$ (`status === 'SATISFIED'`). */
   coveredFacets: string[];
-  /** Query facets still unresolved (requiring escalation to `L2` or a `frontier` hop, or abstention). */
+  /** Query facets still unresolved (`NOT_PUBLISHED`, `NOT_FOUND`, `CONFLICTED`, or `UNVERIFIABLE`). */
   missingFacets: string[];
-  /** Fraction of query facets resolved ($0..1$). */
+  /** Per-facet epistemic diagnostics preventing the agent from confusing absence with non-existence. */
+  facetDiagnostics: FacetDiagnostic[];
+  /** Fraction of required query facets strictly `SATISFIED` ($0..1$). */
   score: number;
-  /** Actionable epistemic decision for the agent (`ANSWERABLE`, `PARTIAL_ESCALATE`, or `ABSTAIN`). */
+  /**
+   * Actionable epistemic decision:
+   * `ANSWERABLE` iff $\forall f_i \in F_{\text{required}}, \text{status}(f_i) = \text{SATISFIED}$.
+   */
   verdict: 'ANSWERABLE' | 'PARTIAL_ESCALATE' | 'ABSTAIN';
+}
+
+export interface EpistemicControllerPlan {
+  /** Optimal next epistemic action maximizing Expected Value of Information (EVI). */
+  action:
+    | 'STOP_AND_ANSWER'
+    | 'ESCALATE_L2'
+    | 'QUERY_MACHINE_TWIN'
+    | 'FOLLOW_FRONTIER'
+    | 'REPORT_CONFLICT'
+    | 'ABSTAIN';
+  /** Residual query uncertainty $H(Q \mid S) \in [0, 1]$. */
+  residualUncertainty: number;
+  /** Expected Value of Information $\text{EVI} = \frac{\mathbb{E}[\Delta I] \times \text{Impact}}{\text{Cost}_{\text{tokens}} + \text{Cost}_{\text{latency}}}$. */
+  evi: number;
+  /** Target resolution (`'L2'`) or next-hop URL (`machineTwin` / `frontier`) when escalating. */
+  target?: string;
+  /** Concise mathematical/epistemic rationale for the controller's decision. */
+  reason: string;
 }
 
 export interface EpistemicAtom {
@@ -102,6 +170,8 @@ export interface MachineTwin {
   kind: 'json-api' | 'llms-txt' | 'nextjs-data' | 'graphql' | 'feed';
   /** Human/agent-readable description of what this endpoint provides. */
   description: string;
+  /** Declarative origin verification tier (cross-origin and private/loopback URLs are rejected). */
+  trust?: 'same-origin-declarative' | 'same-origin-heuristic';
 }
 
 export interface FrontierLink {
@@ -130,8 +200,8 @@ export interface ContextOptions extends PipelineOptions {
   tokenBudget?: number;
   /**
    * Holographic multi-resolution level:
-   * - `'L0'` (~35 tokens): Peripheral "Semantic DNA Pulse" (identity, key invariants, temporal frame, top atoms, twin URL).
-   * - `'L1'` (~180 tokens): Epistemic Core (Schema + Specs + Temporal Cone + Surprisal-Distilled Epistemic Atoms + Machine Twins + Frontier, zero verbose prose).
+   * - `'L0'` (~99 tokens): Peripheral "Semantic DNA Pulse" (identity, key invariants, temporal frame, top atoms, twin URL).
+   * - `'L1'` (~413 tokens): Epistemic Core (Schema + Specs + Temporal Cone + Surprisal-Distilled Epistemic Atoms + Machine Twins + Frontier, zero verbose prose).
    * - `'L2'` (default): Full Foveal Hybrid Context (Structured Facts + Specs + Epistemic Metadata + Deduplicated Prose).
    */
   resolution?: 'L0' | 'L1' | 'L2';
@@ -146,12 +216,14 @@ export interface ContextOptions extends PipelineOptions {
 export interface ContextResult {
   /** One-shot hybrid context string ready to inject into an LLM prompt (zero extra turns). */
   context: string;
-  /** Ultra-compact `L0` Holographic Pulse ("Semantic DNA strand") of the page (~86 `o200k_base` tokens mean). */
+  /** Ultra-compact `L0` Holographic Pulse ("Semantic DNA strand") of the page (~99 `o200k_base` tokens mean). */
   pulse: string;
-  /** Canonical Evidence Graph nodes with provenance, tier (`S1`–`S5`), inline sigils, and $U(f,q)$ utility. */
+  /** Canonical Evidence Graph nodes with provenance, tier (`S0`–`S5`), inline sigils, 4D confidence vector, and $U(f,q)$ utility. */
   evidence: EvidenceNode[];
   /** Multi-facet query coverage & epistemic sufficiency analysis (`ANSWERABLE` | `PARTIAL_ESCALATE` | `ABSTAIN`). */
   sufficiency: EpistemicSufficiency;
+  /** Active Inference & Expected Value of Information (EVI) controller plan (`STOP_AND_ANSWER` | `ESCALATE_L2` | `QUERY_MACHINE_TWIN` | `FOLLOW_FRONTIER` | `ABSTAIN`). */
+  controller: EpistemicControllerPlan;
   /** Primary entity materialized as clean JSON (projected to query-relevant fields if `query` + `tokenBudget` are set). */
   primary?: JsonObject;
   /** All non-action entities materialized on the page. */
@@ -193,12 +265,14 @@ export interface ForagedWavefrontResult {
   context: string;
   /** Pages selected for deep foveal inspection (`L1` or auto-escalated `L2`), ranked by epistemic resonance. */
   fovea: Array<{ url?: string; resonance: number; resolution: 'L1' | 'L2'; page: ContextResult }>;
-  /** Remaining pages kept in peripheral vision as 1-line `L0` Holographic Pulses (~86 tokens mean). */
+  /** Remaining pages kept in peripheral vision as 1-line `L0` Holographic Pulses (~99 tokens mean). */
   periphery: Array<{ url?: string; resonance: number; pulse: string }>;
   /** Record of dynamic resolution escalations (`L0 -> L1 -> L2`) triggered by unresolved query facets. */
   escalations: Array<{ url: string; from: 'L0' | 'L1'; to: 'L1' | 'L2'; reason: string }>;
   /** Aggregate epistemic sufficiency across all inspected pages. */
   sufficiency: EpistemicSufficiency;
+  /** Aggregate EVI controller decision after foveated exploration. */
+  controller: EpistemicControllerPlan;
   /** Deduped shadow APIs / machine twins discovered across all pages (declarative only). */
   machineTwins: MachineTwin[];
   /** Global epistemic frontier: highest-scent unexplored next-hop links across all pages. */
@@ -217,7 +291,9 @@ export interface FieldConflict {
     verifiedInText: boolean;
     /** Independence-discounted & freshness/authority-weighted epistemic score. */
     confidence: number;
-    /** Number of independent (non-copied) source clusters supporting this value. */
+    /** Calibrated Log-Odds Bayesian posterior probability $P(v \mid \mathcal{D}) \in (0, 0.99]$. */
+    posterior?: number;
+    /** Number of independent (non-copied) claim clusters supporting this value. */
     independentClusters?: number;
   }>;
 }
@@ -1165,12 +1241,36 @@ function resolveHref(href: string, baseUrl?: string): string | undefined {
   return undefined;
 }
 
+const PRIVATE_OR_LOCAL_HOST_RE =
+  /^(?:localhost|127\.\d+\.\d+\.\d+|10\.\d+\.\d+\.\d+|192\.168\.\d+\.\d+|172\.(?:1[6-9]|2\d|3[01])\.\d+\.\d+|169\.254\.\d+\.\d+|0\.0\.0\.0|\[::1?\])$|\.(?:local|internal|localhost)$/i;
+
+function isSafeMachineTwinUrl(resolved: string, baseUrl?: string): boolean {
+  if (resolved.startsWith('/')) return !resolved.startsWith('//');
+  try {
+    const parsed = new URL(resolved);
+    if (parsed.protocol !== 'https:' && parsed.protocol !== 'http:') return false;
+    if (parsed.username || parsed.password) return false;
+    if (PRIVATE_OR_LOCAL_HOST_RE.test(parsed.hostname)) return false;
+    if (baseUrl) {
+      const baseParsed = new URL(baseUrl);
+      if (parsed.origin !== baseParsed.origin) return false;
+    }
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 /**
  * Shadow API & Machine-Twin Autodiscovery:
  * Inspects a page for native machine-readable twins embedded alongside HTML —
  * such as WordPress REST API (`application/json`), `/llms.txt`, Next.js SSR
  * data routes (`/_next/data/<buildId>/...json`), Shopify product `.json` twins,
  * RSS/Atom feeds, or inline `/api/` & `/graphql` endpoints.
+ *
+ * Security boundary: Discovery is strictly declarative (never auto-fetched),
+ * blocks private/loopback/link-local SSRF addresses and credentials, and
+ * enforces same-origin alignment when `baseUrl` is provided.
  */
 export function discoverMachineTwins(
   source: Document | string,
@@ -1183,11 +1283,16 @@ export function discoverMachineTwins(
 
   const twins: MachineTwin[] = [];
   const seen = new Set<string>();
-  const addTwin = (url: string | undefined, kind: MachineTwin['kind'], description: string) => {
+  const addTwin = (
+    url: string | undefined,
+    kind: MachineTwin['kind'],
+    description: string,
+    trust: MachineTwin['trust'] = 'same-origin-declarative'
+  ) => {
     const resolved = url ? resolveHref(url, baseUrl) : undefined;
-    if (!resolved || seen.has(resolved)) return;
+    if (!resolved || seen.has(resolved) || !isSafeMachineTwinUrl(resolved, baseUrl)) return;
     seen.add(resolved);
-    twins.push({ url: resolved, kind, description });
+    twins.push({ url: resolved, kind, description, trust });
   };
 
   // 1. <link rel="alternate" type="application/json|text/markdown|application/rss+xml..." href="...">
@@ -1204,14 +1309,14 @@ export function discoverMachineTwins(
       rel.includes('alternate') &&
       (type.includes('application/json') || type.includes('application/activity+json'))
     ) {
-      addTwin(href, 'json-api', `Native JSON twin (${type})`);
+      addTwin(href, 'json-api', `Native JSON twin (${type})`, 'same-origin-declarative');
     } else if (type.includes('text/markdown') || href.endsWith('/llms.txt') || href.endsWith('/llms-full.txt')) {
-      addTwin(href, 'llms-txt', 'LLM-optimized Markdown twin');
+      addTwin(href, 'llms-txt', 'LLM-optimized Markdown twin', 'same-origin-declarative');
     } else if (
       rel.includes('alternate') &&
       (type.includes('rss+xml') || type.includes('atom+xml') || type.includes('feed+json'))
     ) {
-      addTwin(href, 'feed', `Syndication feed (${type})`);
+      addTwin(href, 'feed', `Syndication feed (${type})`, 'same-origin-declarative');
     }
   }
 
@@ -1229,7 +1334,8 @@ export function discoverMachineTwins(
         addTwin(
           `/_next/data/${buildId}${cleanPage}.json`,
           'nextjs-data',
-          'Next.js SSR JSON route'
+          'Next.js SSR JSON route',
+          'same-origin-declarative'
         );
       }
     } catch {
@@ -1244,7 +1350,7 @@ export function discoverMachineTwins(
     (html.includes('Shopify.') || /property=["']og:type["'][^>]+content=["']product["']/i.test(html))
   ) {
     const cleanUrl = baseUrl.replace(/\/$/, '');
-    addTwin(`${cleanUrl}.json`, 'json-api', 'Canonical product JSON endpoint');
+    addTwin(`${cleanUrl}.json`, 'json-api', 'Canonical product JSON endpoint', 'same-origin-heuristic');
   }
 
   // 4. Inline /llms.txt or /api/v... or /graphql endpoints in HTML
@@ -1253,11 +1359,11 @@ export function discoverMachineTwins(
   while ((apiMatch = apiRe.exec(html)) !== null) {
     const rawPath = apiMatch[1]!;
     if (rawPath.endsWith('.txt')) {
-      addTwin(rawPath, 'llms-txt', 'Site /llms.txt index');
+      addTwin(rawPath, 'llms-txt', 'Site /llms.txt index', 'same-origin-heuristic');
     } else if (rawPath.endsWith('/graphql')) {
-      addTwin(rawPath, 'graphql', 'GraphQL API endpoint');
+      addTwin(rawPath, 'graphql', 'GraphQL API endpoint', 'same-origin-heuristic');
     } else {
-      addTwin(rawPath, 'json-api', 'Discovered REST API endpoint');
+      addTwin(rawPath, 'json-api', 'Discovered REST API endpoint', 'same-origin-heuristic');
     }
   }
 
@@ -1352,7 +1458,8 @@ export function extractEpistemicFrontier(
 /**
  * Builds the Canonical Evidence Graph (`EvidenceNode[]`) ranking every datum by
  * its Epistemic Hierarchy Tier (`S1:corroborated` > `S3:tabular` > `S2:structured`
- * > `S4:prose` > `S5:meta`) and multi-factor utility $U(f,q) = R(f,q)\cdot C(f)\cdot T(f)\cdot N(f)$.
+ * > `S4:prose` > `S5:meta`), 4D confidence vector $C = (C_{\text{extraction}}, C_{\text{agreement}}, C_{\text{source}}, C_{\text{freshness}})$,
+ * and multi-factor utility $U(f,q) = R(f,q)\cdot C(f)\cdot T(f)\cdot N(f)$.
  */
 function buildEvidenceGraph(
   subject: string,
@@ -1372,6 +1479,11 @@ function buildEvidenceGraph(
       ? Number(Math.max(0.4, Math.exp(-temporal.ageDays / 3650)).toFixed(2))
       : 0.95;
 
+  const isPrimaryAuthority = url
+    ? /\b(?:\.gov\b|\.edu\b|wikipedia\.org|developer\.mozilla\.org|arxiv\.org|doi\.org)/i.test(url)
+    : false;
+  const sourcePrior = isPrimaryAuthority ? 0.9 : 0.8;
+
   const scoreRelevance = (key: string, val: string): number => {
     if (!profile || profile.terms.length === 0) return 1.0;
     const feats = extractFeatures(`${key} ${val}`, profile);
@@ -1389,7 +1501,8 @@ function buildEvidenceGraph(
       const verified = prov?.verifiedInText ?? false;
       const tier: EvidenceTier = verified ? 'S1:corroborated' : 'S2:structured';
       const sigil: EvidenceSigil = verified ? '[✓S1]' : '[~S2]';
-      const corroboration = verified ? 1.0 : 0.78;
+      // Cross-representation consistency within a single origin is capped at 0.92 (never 1.0)
+      const agreement = verified ? 0.92 : 0.78;
       const rel = scoreRelevance(predicate, valStr);
       nodes.push({
         subject,
@@ -1405,9 +1518,11 @@ function buildEvidenceGraph(
         },
         confidence: {
           extraction: 0.99,
-          corroboration,
+          agreement,
+          corroboration: agreement,
+          source: sourcePrior,
           freshness,
-          utility: Number((rel * corroboration * freshness).toFixed(2)),
+          utility: Number((rel * agreement * sourcePrior * freshness).toFixed(2)),
         },
       });
     }
@@ -1415,6 +1530,7 @@ function buildEvidenceGraph(
 
   for (const [k, v] of Object.entries(specs)) {
     const rel = scoreRelevance(k, v);
+    const agreement = 0.88;
     nodes.push({
       subject,
       predicate: k,
@@ -1429,9 +1545,11 @@ function buildEvidenceGraph(
       },
       confidence: {
         extraction: 0.94,
-        corroboration: 0.9,
+        agreement,
+        corroboration: agreement,
+        source: sourcePrior,
         freshness,
-        utility: Number((rel * 0.9 * freshness).toFixed(2)),
+        utility: Number((rel * agreement * sourcePrior * freshness).toFixed(2)),
       },
     });
   }
@@ -1441,6 +1559,7 @@ function buildEvidenceGraph(
       const valStr = scalarOf(v);
       if (!valStr) continue;
       const rel = scoreRelevance(k, valStr);
+      const agreement = 0.82;
       nodes.push({
         subject,
         predicate: k,
@@ -1455,9 +1574,11 @@ function buildEvidenceGraph(
         },
         confidence: {
           extraction: 0.92,
-          corroboration: 0.85,
+          agreement,
+          corroboration: agreement,
+          source: sourcePrior,
           freshness,
-          utility: Number((rel * 0.85 * freshness).toFixed(2)),
+          utility: Number((rel * agreement * sourcePrior * freshness).toFixed(2)),
         },
       });
     }
@@ -1465,6 +1586,7 @@ function buildEvidenceGraph(
 
   for (const atom of atoms) {
     const rel = scoreRelevance(atom.kind, atom.claim);
+    const agreement = 0.7;
     nodes.push({
       subject,
       predicate: atom.kind,
@@ -1479,9 +1601,11 @@ function buildEvidenceGraph(
       },
       confidence: {
         extraction: 0.85,
-        corroboration: 0.7,
+        agreement,
+        corroboration: agreement,
+        source: sourcePrior,
         freshness,
-        utility: Number((rel * 0.7 * freshness * Math.min(2.0, atom.surprisal / 2)).toFixed(2)),
+        utility: Number((rel * agreement * sourcePrior * freshness * Math.min(2.0, atom.surprisal / 2)).toFixed(2)),
       },
     });
   }
@@ -1491,15 +1615,18 @@ function buildEvidenceGraph(
 }
 
 /**
- * Evaluates Multi-Facet Epistemic Sufficiency:
- * checks whether every orthogonal requirement of `query` is satisfied by
- * available evidence nodes or prose, producing an explicit `ANSWERABLE`,
- * `PARTIAL_ESCALATE`, or `ABSTAIN` verdict.
+ * Evaluates Multi-Facet Epistemic Sufficiency under strict per-facet thresholds:
+ * $$\text{ANSWERABLE} \iff \forall f_i \in F_{\text{required}},\; \text{Evidence}(f_i) \ge \tau_i \land \neg\text{Conflicted}(f_i)$$
+ * Distinguishes `SATISFIED`, `NOT_PUBLISHED` (omitted from structured schema),
+ * `NOT_FOUND` (absent everywhere), `CONFLICTED`, and `UNVERIFIABLE` (expired/weak $< \tau_i$).
  */
 function analyzeEpistemicSufficiency(
   profile: QueryProfile | undefined,
   evidence: readonly EvidenceNode[],
-  prose: string
+  prose: string,
+  discrepancies: readonly string[] = [],
+  hasStructuredPrimary = false,
+  resolution: 'L0' | 'L1' | 'L2' = 'L2'
 ): EpistemicSufficiency {
   if (!profile || profile.facets.length === 0) {
     const hasEvidence = evidence.length > 0 || prose.length > 20;
@@ -1507,6 +1634,7 @@ function analyzeEpistemicSufficiency(
       facets: [],
       coveredFacets: [],
       missingFacets: [],
+      facetDiagnostics: [],
       score: hasEvidence ? 1.0 : 0.0,
       verdict: hasEvidence ? 'ANSWERABLE' : 'ABSTAIN',
     };
@@ -1514,10 +1642,13 @@ function analyzeEpistemicSufficiency(
 
   const coveredFacets: string[] = [];
   const missingFacets: string[] = [];
+  const facetDiagnostics: FacetDiagnostic[] = [];
   const proseLower = prose.toLowerCase();
+  const discLower = discrepancies.join(' ').toLowerCase();
+  const threshold = 0.55;
 
   for (const facet of profile.facets) {
-    const coveredByNode = evidence.some((n) => {
+    const matchingNodes = evidence.filter((n) => {
       const predLower = n.predicate.toLowerCase();
       const valLower = n.value.toLowerCase();
       return (
@@ -1525,26 +1656,170 @@ function analyzeEpistemicSufficiency(
         facet.terms.some((t) => predLower.includes(t) || valLower.includes(t))
       );
     });
-    const coveredByProse =
-      !coveredByNode && facet.terms.some((t) => proseLower.includes(t));
 
-    if (coveredByNode || coveredByProse) {
+    const isConflicted =
+      discrepancies.length > 0 &&
+      (facet.terms.some((t) => discLower.includes(t)) ||
+        [...facet.fields].some((f) => discLower.includes(f)));
+
+    let maxConf = 0;
+    let bestSigil: EvidenceSigil | undefined;
+    for (const n of matchingNodes) {
+      const conf = Number((n.confidence.agreement * n.confidence.freshness).toFixed(2));
+      if (conf > maxConf) {
+        maxConf = conf;
+        bestSigil = n.sigil;
+      }
+    }
+
+    const coveredByProse =
+      matchingNodes.length === 0 && facet.terms.some((t) => proseLower.includes(t));
+    if (coveredByProse) {
+      maxConf = 0.65;
+      bestSigil = '[§S4]';
+    }
+
+    let status: FacetStatus;
+    if (isConflicted) {
+      status = 'CONFLICTED';
+      bestSigil = '[!CONFLICT]';
+      missingFacets.push(facet.id);
+    } else if (maxConf >= threshold) {
+      status = 'SATISFIED';
       coveredFacets.push(facet.id);
+    } else if (maxConf > 0) {
+      status = 'UNVERIFIABLE';
+      missingFacets.push(facet.id);
+    } else if (hasStructuredPrimary && (facet.fields.size > 0 || resolution !== 'L2')) {
+      status = 'NOT_PUBLISHED';
+      missingFacets.push(facet.id);
     } else {
+      status = 'NOT_FOUND';
       missingFacets.push(facet.id);
     }
+
+    facetDiagnostics.push({
+      facet: facet.id,
+      status,
+      threshold,
+      maxConfidence: maxConf,
+      ...(bestSigil ? { sigil: bestSigil } : {}),
+    });
   }
 
   const score = Number((coveredFacets.length / profile.facets.length).toFixed(2));
-  const verdict: EpistemicSufficiency['verdict'] =
-    score >= 1.0 ? 'ANSWERABLE' : score > 0 ? 'PARTIAL_ESCALATE' : 'ABSTAIN';
+  // Strict rule: ANSWERABLE iff EVERY required facet is SATISFIED
+  const allSatisfied =
+    facetDiagnostics.length > 0 && facetDiagnostics.every((d) => d.status === 'SATISFIED');
+  const anyProgress =
+    coveredFacets.length > 0 ||
+    facetDiagnostics.some((d) => d.status === 'NOT_PUBLISHED' || d.status === 'CONFLICTED');
+  const verdict: EpistemicSufficiency['verdict'] = allSatisfied
+    ? 'ANSWERABLE'
+    : anyProgress
+      ? 'PARTIAL_ESCALATE'
+      : 'ABSTAIN';
 
   return {
     facets: profile.facets.map((f) => f.id),
     coveredFacets,
     missingFacets,
+    facetDiagnostics,
     score,
     verdict,
+  };
+}
+
+/**
+ * Active Inference & Expected Value of Information (EVI) Controller:
+ * $$\text{EVI}(a) = \frac{\mathbb{E}[\Delta I(a)] \times \text{Impact}(a)}{\text{Cost}_{\text{tokens}}(a) + \text{Cost}_{\text{latency}}(a)}$$
+ * Computes the optimal next epistemic action given current sufficiency,
+ * resolution level, discovered Machine Twins, and Information-Foraging Frontier.
+ */
+function computeEpistemicController(
+  sufficiency: EpistemicSufficiency,
+  resolution: 'L0' | 'L1' | 'L2',
+  hasUninspectedProse: boolean,
+  machineTwins: readonly MachineTwin[],
+  frontier: readonly FrontierLink[]
+): EpistemicControllerPlan {
+  const residualUncertainty = Number((1.0 - sufficiency.score).toFixed(2));
+  const hasConflict = sufficiency.facetDiagnostics.some((d) => d.status === 'CONFLICTED');
+
+  if (sufficiency.verdict === 'ANSWERABLE' && !hasConflict) {
+    return {
+      action: 'STOP_AND_ANSWER',
+      residualUncertainty: 0,
+      evi: 0,
+      reason: 'All required query facets satisfy threshold τ; marginal EVI of further retrieval is zero.',
+    };
+  }
+
+  if (hasConflict) {
+    if (frontier.length > 0) {
+      const topHop = frontier[0]!;
+      return {
+        action: 'FOLLOW_FRONTIER',
+        residualUncertainty: Math.max(0.35, residualUncertainty),
+        evi: Number(((topHop.scent * 0.45) / 0.5).toFixed(2)),
+        target: topHop.url,
+        reason: `Active discrepancy on required facet; high-scent hop "${topHop.anchor}" can arbitrate conflict.`,
+      };
+    }
+    return {
+      action: 'REPORT_CONFLICT',
+      residualUncertainty: Math.max(0.35, residualUncertainty),
+      evi: 0,
+      reason: 'Conflicting evidence detected across representations; report both values with provenance.',
+    };
+  }
+
+  // Candidate 1: Local escalation from L0/L1 -> L2 (zero network latency cost, high ΔI for NOT_PUBLISHED facets)
+  if (resolution !== 'L2' && hasUninspectedProse && sufficiency.missingFacets.length > 0) {
+    const expectedGain = sufficiency.missingFacets.length * 0.72;
+    const cost = 0.25; // ~220 local tokens, 0 HTTP round-trips
+    return {
+      action: 'ESCALATE_L2',
+      residualUncertainty,
+      evi: Number((expectedGain / cost).toFixed(2)),
+      target: 'L2',
+      reason: `Missing facets (${sufficiency.missingFacets.join(', ')}) are NOT_PUBLISHED in schema; inspect L2 prose body.`,
+    };
+  }
+
+  // Candidate 2: Query a verified same-origin Machine Twin (.json / GraphQL / llms.txt)
+  if (machineTwins.length > 0 && sufficiency.missingFacets.length > 0) {
+    const twin = machineTwins[0]!;
+    const expectedGain = sufficiency.missingFacets.length * 0.68;
+    const cost = 0.4; // 1 lightweight JSON fetch
+    return {
+      action: 'QUERY_MACHINE_TWIN',
+      residualUncertainty,
+      evi: Number((expectedGain / cost).toFixed(2)),
+      target: twin.url,
+      reason: `Facet (${sufficiency.missingFacets.join(', ')}) missing in HTML; query same-origin ${twin.kind} twin.`,
+    };
+  }
+
+  // Candidate 3: Follow highest-scent Information-Foraging Frontier link (e.g. PDF datasheet)
+  if (frontier.length > 0 && sufficiency.missingFacets.length > 0) {
+    const hop = frontier[0]!;
+    const expectedGain = Math.min(1.5, hop.scent * 0.22) * sufficiency.missingFacets.length;
+    const cost = 0.6; // 1 external page/PDF fetch
+    return {
+      action: 'FOLLOW_FRONTIER',
+      residualUncertainty,
+      evi: Number((expectedGain / cost).toFixed(2)),
+      target: hop.url,
+      reason: `Follow high-scent frontier hop "${hop.anchor}" (${hop.reason}) to resolve (${sufficiency.missingFacets.join(', ')}).`,
+    };
+  }
+
+  return {
+    action: 'ABSTAIN',
+    residualUncertainty,
+    evi: 0,
+    reason: `Required facets (${sufficiency.missingFacets.join(', ')}) are NOT_FOUND/UNVERIFIABLE and no positive-EVI hop remains.`,
   };
 }
 
@@ -1817,7 +2092,22 @@ export function toContext(source: Document | string, options: ContextOptions = {
     queryProfile
   );
 
-  const sufficiency = analyzeEpistemicSufficiency(queryProfile, evidence, prose);
+  const sufficiency = analyzeEpistemicSufficiency(
+    queryProfile,
+    evidence,
+    prose,
+    discrepancies,
+    Boolean(fullPrimary),
+    resolution
+  );
+
+  const controller = computeEpistemicController(
+    sufficiency,
+    resolution,
+    dedupedSegments.length > 0,
+    machineTwins,
+    frontier
+  );
 
   const pulse = buildHolographicPulse(
     title,
@@ -1841,6 +2131,7 @@ export function toContext(source: Document | string, options: ContextOptions = {
       title,
       ...(scraped.meta.canonical ? { url: scraped.meta.canonical } : {}),
       sufficiency,
+      controller,
       ...(temporal.anchorWarning ? { temporalWarning: temporal.anchorWarning } : {}),
       ...(primary ? { primary } : {}),
       ...(Object.keys(specs).length > 0 ? { specs } : {}),
@@ -1880,8 +2171,11 @@ export function toContext(source: Document | string, options: ContextOptions = {
       sections.push(`⏱️ Temporal Frame: ${temporal.anchorWarning}`);
     }
     if (queryProfile && queryProfile.facets.length > 0) {
+      const diagSummary = sufficiency.facetDiagnostics
+        .map((d) => `${d.facet}:${d.status}`)
+        .join(', ');
       sections.push(
-        `⚖️ Epistemic Sufficiency: ${sufficiency.verdict} (${sufficiency.coveredFacets.length}/${sufficiency.facets.length} facets${sufficiency.missingFacets.length > 0 ? `, missing: ${sufficiency.missingFacets.join(', ')}` : ''})`
+        `⚖️ Epistemic Sufficiency: ${sufficiency.verdict} (${sufficiency.coveredFacets.length}/${sufficiency.facets.length} facets [${diagSummary}])\n🎯 Controller: ${controller.action} (H=${controller.residualUncertainty}, EVI=${controller.evi}${controller.target ? ` -> ${controller.target}` : ''})`
       );
     }
     if (discrepancies.length > 0) {
@@ -1945,6 +2239,7 @@ export function toContext(source: Document | string, options: ContextOptions = {
     pulse,
     evidence,
     sufficiency,
+    controller,
     ...(primary ? { primary } : {}),
     entities,
     specs,
@@ -1966,7 +2261,7 @@ export function toContext(source: Document | string, options: ContextOptions = {
 }
 
 // ---------------------------------------------------------------------------
-// 4. Multi-Page Knowledge Graph Fusion & Bayesian Truth Discovery
+// 4. Multi-Page Knowledge Graph Fusion & Claim-Level Log-Odds Bayesian Truth Discovery
 // ---------------------------------------------------------------------------
 
 function scalarOf(val: unknown): string | undefined {
@@ -1988,14 +2283,32 @@ function scalarOf(val: unknown): string | undefined {
   return undefined;
 }
 
+function extractClaimNeighborhoodHash(page: ContextResult, field: string, scalar: string): string {
+  const normScalar = scalar.toLowerCase();
+  const normField = field.toLowerCase();
+  const lines = [
+    ...page.prose.split('\n'),
+    ...page.atoms.map((a) => a.claim),
+  ];
+  for (const line of lines) {
+    const low = line.toLowerCase();
+    if (low.includes(normScalar) || (normField.length >= 4 && low.includes(normField))) {
+      return simhash64(line);
+    }
+  }
+  return page.fingerprint;
+}
+
 /**
  * Fuses multiple pages (`ContextResult`, `Document`, or HTML string) into a
  * single deduplicated multi-page context:
- * - **Same-subject pages (`mode: 'consensus'`)**: Runs Independence-Weighted
- *   Truth Discovery — discounting syndicated/copied sources via SimHash cluster
- *   detection ($1 / \sqrt{k}$), weighting by `verifiedInText` corroboration,
- *   domain authority, and temporal freshness $T(f)$, and preserving unresolvable
- *   contradictions in `unresolvedConflicts`.
+ * - **Same-subject pages (`mode: 'consensus'`)**: Runs Claim-Level
+ *   Independence-Discounted Log-Odds Bayesian Truth Discovery — evaluating
+ *   both page-level and local claim-neighborhood SimHash similarity so a
+ *   comparator copying a manufacturer's price is discounted on `price` while
+ *   retaining full independence ($1.0$) on its own lab-measured `weight`.
+ *   Computes calibrated Bayesian posterior probabilities $P(v \mid \mathcal{D})$
+ *   and promotes multi-cluster consensus facts to `[✓✓S0]`.
  * - **Distinct-entity pages (`mode: 'comparison'`)**: Synthesizes a unified
  *   Markdown Comparison Matrix (`comparisonTable`) aligning all entities and
  *   their `<dl>`/`<table>` specs side-by-side.
@@ -2011,20 +2324,6 @@ export function fusePages(
       ? inp
       : toContext(inp as Document | string, options)
   );
-
-  // Compute Source Independence Discounting via pairwise SimHash similarity
-  // If two pages have near-identical prose/content (Hamming distance <= 14),
-  // they are syndicated copies rather than independent witnesses.
-  const copyClusterSizes = pages.map((p, idx) => {
-    let clusterSize = 1;
-    for (let j = 0; j < pages.length; j++) {
-      if (j === idx) continue;
-      if (hammingDistance(p.fingerprint, pages[j]!.fingerprint) <= 14) {
-        clusterSize++;
-      }
-    }
-    return clusterSize;
-  });
 
   // Determine whether pages describe the same entity or distinct entities
   const names = pages
@@ -2062,6 +2361,30 @@ export function fusePages(
     for (const field of allFields) {
       const isSpec = field.startsWith('spec:');
       const rawKey = isSpec ? field.slice(5) : field;
+
+      // Collect per-page observations for this specific field
+      const observations: Array<{
+        idx: number;
+        page: ContextResult;
+        sourceId: string;
+        val: JsonValue;
+        scalar: string;
+        normKey: string;
+        claimHash: string;
+      }> = [];
+
+      pages.forEach((p, idx) => {
+        const sourceId = (p as { url?: string }).url ?? p.meta.canonical ?? `[${idx + 1}]`;
+        const val = isSpec ? p.specs[rawKey] : p.primary?.[rawKey];
+        const scalar = scalarOf(val);
+        if (!scalar || val === undefined) return;
+        const normKey = scalar.toLowerCase().replace(/\s+/g, ' ');
+        const claimHash = extractClaimNeighborhoodHash(p, rawKey, scalar);
+        observations.push({ idx, page: p, sourceId, val, scalar, normKey, claimHash });
+      });
+
+      if (observations.length === 0) continue;
+
       const bucket = new Map<
         string,
         {
@@ -2070,25 +2393,40 @@ export function fusePages(
           sources: string[];
           verifiedInText: boolean;
           confidence: number;
+          logOdds: number;
+          posterior: number;
           clusters: Set<string>;
         }
       >();
 
-      pages.forEach((p, idx) => {
-        const sourceId = (p as { url?: string }).url ?? p.meta.canonical ?? `[${idx + 1}]`;
-        const val = isSpec ? p.specs[rawKey] : p.primary?.[rawKey];
-        const scalar = scalarOf(val);
-        if (!scalar || val === undefined) return;
+      for (const obs of observations) {
+        const { page: p, sourceId, val, scalar, normKey, claimHash } = obs;
 
-        const normKey = scalar.toLowerCase().replace(/\s+/g, ' ');
+        // Claim-Level Copy Cluster Detection:
+        // Two observations are dependent copies on `rawKey` ONLY if they assert the
+        // same value `normKey` AND share either a near-duplicate page fingerprint (<= 14)
+        // or a near-duplicate local claim sentence fingerprint (<= 12).
+        let claimClusterSize = 1;
+        let clusterRep = claimHash.slice(0, 6);
+        for (const other of observations) {
+          if (other.idx === obs.idx || other.normKey !== normKey) continue;
+          const pageNear = hammingDistance(p.fingerprint, other.page.fingerprint) <= 14;
+          const claimNear = hammingDistance(claimHash, other.claimHash) <= 12;
+          if (pageNear || claimNear) {
+            claimClusterSize++;
+            const otherRep = other.claimHash.slice(0, 6);
+            if (otherRep < clusterRep) clusterRep = otherRep;
+          }
+        }
+
         const prov = p.provenance.find((pr) => pr.field === rawKey || pr.field.startsWith(`${rawKey}.`));
         const verified = prov?.verifiedInText ?? isSpec;
 
-        // 1. Corroboration weight: verified in visible text = 2.0, unverified markup = 1.0
+        // 1. Cross-representation agreement weight
         const corroborationWeight = verified ? 2.0 : 1.0;
 
-        // 2. Independence discount: syndicated copies get 1 / sqrt(clusterSize)
-        const independenceFactor = 1.0 / Math.sqrt(copyClusterSizes[idx] ?? 1);
+        // 2. Claim-level independence discount: 1 / sqrt(claimClusterSize)
+        const independenceFactor = 1.0 / Math.sqrt(claimClusterSize);
 
         // 3. Temporal freshness factor
         const freshnessFactor = p.temporal.isExpiredOffer
@@ -2108,12 +2446,18 @@ export function fusePages(
           (corroborationWeight * independenceFactor * freshnessFactor * authorityBoost).toFixed(2)
         );
 
+        // Single-witness reliability r_i in [0.54, 0.91] for Log-Odds Bayesian update
+        const rawReliability = (verified ? 0.78 : 0.62) * freshnessFactor * (authorityBoost > 1 ? 1.08 : 1.0);
+        const r = Math.min(0.91, Math.max(0.54, rawReliability));
+        const logLikelihood = independenceFactor * Math.log(r / (1.0 - r));
+
         const existing = bucket.get(normKey);
         if (existing) {
           existing.sources.push(sourceId);
           existing.confidence = Number((existing.confidence + weight).toFixed(2));
+          existing.logOdds += logLikelihood;
           existing.verifiedInText = existing.verifiedInText || verified;
-          existing.clusters.add(p.fingerprint.slice(0, 6));
+          existing.clusters.add(clusterRep);
         } else {
           bucket.set(normKey, {
             display: scalar,
@@ -2121,13 +2465,25 @@ export function fusePages(
             sources: [sourceId],
             verifiedInText: verified,
             confidence: weight,
-            clusters: new Set([p.fingerprint.slice(0, 6)]),
+            logOdds: logLikelihood,
+            posterior: 0,
+            clusters: new Set([clusterRep]),
           });
         }
-      });
+      }
 
-      if (bucket.size === 0) continue;
-      const ranked = [...bucket.values()].sort((a, b) => b.confidence - a.confidence);
+      // Normalize Log-Odds into calibrated Bayesian posterior probabilities P(v | D) in (0, 0.99]
+      const entries = [...bucket.values()];
+      const nullHypothesisMass = 0.45; // Residual epistemic uncertainty floor
+      const expSum =
+        entries.reduce((acc, e) => acc + Math.exp(Math.min(10, e.logOdds)), 0) + nullHypothesisMass;
+      for (const e of entries) {
+        e.posterior = Number(
+          Math.min(0.99, Math.exp(Math.min(10, e.logOdds)) / expSum).toFixed(2)
+        );
+      }
+
+      const ranked = entries.sort((a, b) => b.confidence - a.confidence);
       const top = ranked[0]!;
       const runnerUp = ranked[1];
 
@@ -2150,6 +2506,7 @@ export function fusePages(
             sources: r.sources,
             verifiedInText: r.verifiedInText,
             confidence: r.confidence,
+            posterior: r.posterior,
             independentClusters: r.clusters.size,
           })),
         };
@@ -2208,7 +2565,7 @@ export function fusePages(
 
   const sections: string[] = [];
   if (mode === 'consensus' && consensus) {
-    sections.push(`# Multi-Page Consensus (${pages.length} sources)\n\`\`\`json\n${JSON.stringify(consensus)}\n\`\`\``);
+    sections.push(`# Multi-Page Consensus (${pages.length} sources [✓✓S0])\n\`\`\`json\n${JSON.stringify(consensus)}\n\`\`\``);
     if (conflicts.length > 0) {
       sections.push(
         `## Cross-Source Conflicts\n` +
@@ -2219,7 +2576,7 @@ export function fusePages(
                 c.values
                   .map(
                     (v) =>
-                      `"${v.value}" (${v.sources.join(', ')}, ${v.verifiedInText ? '[✓S1]' : '[~S2]'}, score=${v.confidence})`
+                      `"${v.value}" (${v.sources.join(', ')}, ${(v.independentClusters ?? 1) >= 2 && v.verifiedInText ? '[✓✓S0]' : v.verifiedInText ? '[✓S1]' : '[~S2]'}, P=${v.posterior ?? 0.5}, score=${v.confidence})`
                   )
                   .join(' vs ')
             )
@@ -2269,7 +2626,7 @@ export function fusePages(
  *    best candidate page(s) from **`L1` to `L2` Deep Inspection** to retrieve
  *    the missing prose passages!
  * 4. Keeps all remaining SERP pages in **Peripheral Vision** as 1-line `L0`
- *    Holographic Pulses (~86 tokens mean), plus a global index of declarative
+ *    Holographic Pulses (~99 tokens mean), plus a global index of declarative
  *    **Shadow Machine Twins** and **Epistemic Frontier** next-hop links.
  */
 export function foragePages(
@@ -2336,8 +2693,17 @@ export function foragePages(
   // Check aggregate epistemic sufficiency across L1 fovea; if any query facet is
   // still missing, dynamically escalate the top foveal page(s) to L2 Deep Inspection!
   const combinedEvidence: EvidenceNode[] = fovea.flatMap((f) => f.page.evidence);
+  const combinedDiscrepancies: string[] = fovea.flatMap((f) => f.page.discrepancies);
+  const anyPrimary = fovea.some((f) => Boolean(f.page.primary));
   let combinedProse = fovea.map((f) => f.page.prose).join('\n');
-  let sufficiency = analyzeEpistemicSufficiency(profile, combinedEvidence, combinedProse);
+  let sufficiency = analyzeEpistemicSufficiency(
+    profile,
+    combinedEvidence,
+    combinedProse,
+    combinedDiscrepancies,
+    anyPrimary,
+    'L1'
+  );
 
   if (sufficiency.missingFacets.length > 0) {
     for (const f of fovea) {
@@ -2372,7 +2738,10 @@ export function foragePages(
     sufficiency = analyzeEpistemicSufficiency(
       profile,
       fovea.flatMap((f) => f.page.evidence),
-      combinedProse
+      combinedProse,
+      fovea.flatMap((f) => f.page.discrepancies),
+      anyPrimary,
+      'L2'
     );
   }
 
@@ -2397,9 +2766,16 @@ export function foragePages(
 
   const machineTwins = [...twinMap.values()].slice(0, 6);
   const frontier = [...frontierMap.values()].sort((a, b) => b.scent - a.scent).slice(0, 6);
+  const controller = computeEpistemicController(
+    sufficiency,
+    fovea.some((f) => f.resolution === 'L2') ? 'L2' : 'L1',
+    false,
+    machineTwins,
+    frontier
+  );
 
   const sections: string[] = [
-    `# Foveated Wavefront (${fovea.length} foveal, ${periphery.length} peripheral L0 pulses | Verdict: ${sufficiency.verdict})`,
+    `# Foveated Wavefront (${fovea.length} foveal, ${periphery.length} peripheral L0 pulses | Verdict: ${sufficiency.verdict} | Controller: ${controller.action})`,
   ];
 
   for (const f of fovea) {
@@ -2465,6 +2841,7 @@ export function foragePages(
     periphery,
     escalations,
     sufficiency,
+    controller,
     machineTwins,
     frontier,
     estimatedTokens: estimateBpeTokens(context),

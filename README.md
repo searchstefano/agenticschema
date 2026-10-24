@@ -58,17 +58,17 @@ Nobody serious feeds raw HTML to a model: a competent scraper strips the markup 
 
 ### 2. AI-Native Live Search Signals extracted across the 177 real pages
 
-Beyond schema normalization, `toContext()`, `forageUrls()`, and `fuseUrls()` extract six AI-native layers that traditional text scrapers discard or miss completely:
+Beyond schema normalization, `toContext()`, `forageUrls()`, and `fuseUrls()` extract seven AI-native layers that traditional text scrapers discard or miss completely:
 
 | AI-Native Layer | Measured on 177-page Corpus | What it gives the LLM during Live Search |
 | --- | ---: | --- |
-| **Dual-Plane Evidence Graph & Inline Sigils** (`evidence`) | **100% of structured & tabular facts** | Typed `EvidenceNode[]` in code + zero-bloat 2-token sigils in the prompt (`[✓S1]` corroborated in DOM prose, `[~S2]` unverified markup, `[#S3]` `<dl>`/`<table>`/SSR, `[§S4]` prose atom, `[!CONFLICT]`). |
-| **Multi-Facet Sufficiency Calculus** (`sufficiency`) | **110 tokens mean** *(at `budget=120`)* | Decomposes multi-part queries into orthogonal facets, maximizes $U(f,q) = R(f,q) \cdot C(f) \cdot T(f) \cdot N(f \mid S)$ so no single facet monopolizes the budget, and outputs `ANSWERABLE`, `PARTIAL_ESCALATE`, or `ABSTAIN`. |
+| **Dual-Plane Evidence Graph & Inline Sigils** (`evidence`) | **100% of structured & tabular facts** | Typed `EvidenceNode[]` with 4D confidence $C=(C_{\text{extraction}}, C_{\text{agreement}}, C_{\text{source}}, C_{\text{freshness}})$ + zero-bloat sigils (`[✓✓S0]` cross-origin consensus, `[✓S1]` intra-page consistent $C_{\text{agreement}}=0.92$, `[~S2]` unverified markup, `[#S3]` `<dl>`/`<table>`/SSR, `[§S4]` prose atom, `[!CONFLICT]`). |
+| **Multi-Facet Sufficiency & Absence Taxonomy** (`sufficiency`) | **110 tokens mean** *(at `budget=120`)* | Enforces $\text{ANSWERABLE} \iff \forall f_i \in F_{\text{required}}, \text{Evidence}(f_i) \ge \tau_i$, and diagnoses every facet as `SATISFIED`, `NOT_PUBLISHED`, `NOT_FOUND`, `CONFLICTED`, or `UNVERIFIABLE`. |
+| **Active Inference EVI Controller** (`controller`) | **$< 0.1\text{ ms}$ decision** | Computes residual query entropy $H(Q \mid S)$ and Expected Value of Information ($\text{EVI}$) to choose `STOP_AND_ANSWER`, `ESCALATE_L2`, `QUERY_MACHINE_TWIN`, `FOLLOW_FRONTIER`, or `ABSTAIN`. |
 | **Surprisal-Distilled Epistemic Atoms** (`atoms`) | **679 verified atoms** *(3.8 / page)* | Strips zero-surprise rhetorical filler and requires a non-parametric anchor (quantity/unit, constraint/negation, or temporal date) subordinated to query relevance. |
 | **Relativistic Temporal Light-Cone** (`temporal`) | **125 / 177 pages (71%)** | Anchors `publishedAt` / `modifiedAt` / `priceValidUntil`, flags expired offers (`⚠️EXPIRED_OFFER`), and warns when older pages use indexical words (*"currently"*, *"this year"*, *"latest"*). |
-| **Shadow APIs & Machine Twins** (`machineTwins`) | **102 endpoints discovered** | Autodiscovers native JSON/API twins embedded in HTML (`wp-json`, `/llms.txt`, `/_next/data/...json`, canonical Shopify `.json`, RSS/Atom/JSON feeds). |
-| **Information-Foraging Frontier** (`frontier`) | **361 high-scent hops** | Scores outbound links by Pirolli-Card Information Scent (filtering out `/login`, `/privacy`, `/cart` chrome and surfacing `.pdf` datasheets, primary studies, `/specs`, and query-matching deep links). |
-| **Adaptive `L0 -> L1 -> L2` Wavefront** (`forageUrls`) | **~1,600 tokens total** *(for 10 pages)* | Scans all 10 pages at `L0` (`99` tok), promotes the top 2 to `L1` (`413` tok), and dynamically escalates to `L2` only when `sufficiency.missingFacets` is non-empty. |
+| **Shadow APIs & Machine Twins** (`machineTwins`) | **102 endpoints discovered** | Declaratively discovers same-origin JSON/API twins (`wp-json`, `/llms.txt`, `/_next/data/...json`, Shopify `.json`, feeds) with SSRF/private-IP and credential filtering. |
+| **Information-Foraging Frontier & Adaptive Wavefront** (`forageUrls`) | **361 high-scent hops** | Scans all $N$ pages at `L0` (`99` tok), promotes top resonant pages to `L1` (`413` tok), and dynamically escalates to `L2` only when `sufficiency.missingFacets` is non-empty. |
 
 ### 3. Answer accuracy & hallucination rate (`sonnet`, 120 trials)
 
@@ -89,8 +89,8 @@ Why the tools arm wins on complex and recipe questions: prose scatters facts acr
 
 | Metric | Value | Why it matters |
 | --- | ---: | --- |
-| **Pipeline execution time** (`extract` → `guard`) | **3 ms / page** | Identical to stripping HTML tags (`3 ms`). Zero LLM calls during extraction. |
-| **Zero-DOM server fast path** (JSON-LD + Microdata + RDFa) | **0 ms DOM parse** | Server/Edge `toContext()` extracts JSON-LD, Microdata, RDFa, `<dl>`/`<table>` specs, and `__NEXT_DATA__` directly from raw HTML without instantiating a DOM. |
+| **Core pipeline & Zero-DOM `toContext()` fast path** (`extract` → `guard`) | **3 ms / page** *(0 ms DOM parse)* | Server/Edge `toContext()` and JSON-LD `toTools()` run in `3 ms` directly on raw HTML strings without instantiating a DOM. |
+| **Full DOM construction** (`linkedom` / `happy-dom` when Microdata/RDFa tree walk is needed) | **~38–41 ms / page** | Only paid on pages that require a full DOM tree walk (excluding network fetch time). |
 | **Streaming Early-Abort** (`earlyAbort: true`) | **Up to 90% less bandwidth** | Aborts the HTTP stream right after `</head>` once structured data is captured. |
 | **Domains publishing `SearchAction` + `urlTemplate`** | **10,000,000+** | Over 10M domains already declare machine-readable search endpoints (Google Crawl stats, 2026-07). |
 | **Browser CDN bundle** (`@agenticschema/browser`) | **30.6 KB gzip** | Single self-contained classic IIFE script, W3C WebMCP polyfill included. |
@@ -155,31 +155,34 @@ npx @agenticschema/server --fuse --query "price weight battery" https://example.
 npx @agenticschema/server --json --fallback https://en.wikipedia.org/wiki/Backpack
 ```
 
-> **Drop-in Agent Skill included:** Point Claude Code, Antigravity, Cursor, or Codex at [`.agent/skills/agentic-live-search/SKILL.md`](.agent/skills/agentic-live-search/SKILL.md) so your AI coding/research agent automatically uses `agenticschema` (`--live` MCP or CLI `--context`/`--forage`/`--fuse`) instead of raw `WebFetch`.
+> **Drop-in Agent Skill included:** Point Claude Code, Antigravity, Cursor, or Codex at [`skills/agentic-live-search/SKILL.md`](skills/agentic-live-search/SKILL.md) (also mirrored in [`.agent/skills/agentic-live-search/SKILL.md`](.agent/skills/agentic-live-search/SKILL.md)) so your AI coding/research agent automatically uses `agenticschema` (`--live` MCP or CLI `--context`/`--forage`/`--fuse`) instead of raw `WebFetch`.
 
 ### 2. AI-Native Live Search (`toContext`, `forageUrls` & `fuseUrls`) & Edge Middleware
 
 Human scrapers treat a web page as a static text document. An LLM doing Live Search (`WebFetch`, `OAI-SearchBot`, Perplexity, RAG) experiences the web completely differently: it already has language in its pre-trained weights, suffers from Transformer attention dilution on rhetorical filler, is vulnerable to temporal drift on old articles, and needs active navigation toward hidden APIs and primary sources.
 
-`toContext()`, `forageUrls()`, and `fuseUrls()` implement **7 AI-native paradigms** in ~3 ms per page:
+`toContext()`, `forageUrls()`, and `fuseUrls()` implement **7 AI-native paradigms**:
 1. **Dual-Plane Canonical Evidence Graph (`evidence`) & Zero-Bloat Inline Epistemic Sigils**:
-   - Instead of wrapping every fact in a 60-token JSON object (which would bloat LLM prompts by 7×), AgenticSchema exposes a full typed `EvidenceNode[]` graph (`subject`, `predicate`, `value`, `tier`, `provenance`, `confidence: { extraction, corroboration, freshness, utility }`) in code while embedding **2-token Inline Epistemic Sigils** in the LLM prompt:
-     - **`[✓S1]`**: Structured Schema.org/Microdata/RDFa fact **corroborated verbatim in visible DOM text** ($C = 1.0$).
-     - **`[~S2]`**: Unverified structured markup not echoed in visible prose ($C = 0.78$).
+   - Exposes a full typed `EvidenceNode[]` graph in code with a **4D Epistemic Confidence Vector** $C = (C_{\text{extraction}}, C_{\text{agreement}}, C_{\text{source}}, C_{\text{freshness}})$ while embedding **2-token Inline Epistemic Sigils** in the LLM prompt:
+     - **`[✓✓S0]`**: Cross-origin consensus corroborated across $\ge 2$ independent SimHash clusters in `fuseUrls()` ($P(v \mid \mathcal{D}) \ge 0.80$).
+     - **`[✓S1]`**: Intra-page cross-representation consistency — structured Schema.org/Microdata/RDFa datum verified in visible DOM text ($C_{\text{agreement}} = 0.92$, ruling out SEO cloaking or template drift, without claiming 1.0 ontological truth from a single origin).
+     - **`[~S2]`**: Unverified structured markup not echoed in visible prose ($C_{\text{agreement}} = 0.78$).
      - **`[#S3]`**: Tabular `<dl>`/`<table>` specification or SSR hydration state (`__NEXT_DATA__`).
      - **`[§S4]`**: High-surprisal quantitative/constraint/temporal prose atom.
      - **`[!CONFLICT]`**: Explicit contradiction between markup and visible text, or across sources.
-2. **Multi-Facet Epistemic Utility & Sufficiency Calculus (`sufficiency`)**:
-   - Decomposes multi-part queries into orthogonal **Query Facets** (`facets`) and maximizes marginal epistemic utility $U(f, q) = R(f, q) \cdot C(f) \cdot T(f) \cdot N(f \mid S)$, boosting uncovered facets by $4\times$ so a question like *"What is the price and what is the rating?"* never picks 5 price facts while dropping the rating.
-   - Emits an explicit sufficiency verdict: **`ANSWERABLE`**, **`PARTIAL_ESCALATE`**, or **`ABSTAIN`**.
-3. **Adaptive Holographic Resolution (`L0 -> L1 -> L2`) & Foveated Wavefront (`foragePages` / `forageUrls`)**:
+2. **Multi-Facet Sufficiency Calculus (`sufficiency`) & Counterfactual Absence Taxonomy**:
+   - Decomposes multi-part queries into orthogonal **Query Facets** (`facets`), maximizes marginal epistemic utility $U(f, q) = R(f, q) \cdot C(f) \cdot T(f) \cdot N(f \mid S)$, and enforces the strict rule:
+     $$\text{ANSWERABLE} \iff \forall f_i \in F_{\text{required}},\quad \text{Evidence}(f_i) \ge \tau_i \land \neg\text{Conflicted}(f_i)$$
+   - Diagnoses every facet in `sufficiency.facetDiagnostics` as **`SATISFIED`**, **`NOT_PUBLISHED`** (structured entity exists but omits the property), **`NOT_FOUND`** (absent everywhere), **`CONFLICTED`**, or **`UNVERIFIABLE`** (expired/weak $< \tau_i$), preventing the LLM from confusing absence with non-existence.
+3. **Active Inference & Expected Value of Information Controller (`controller`)**:
+   - Computes residual query uncertainty $H(Q \mid S)$ and Expected Value of Information $\text{EVI}(a) = \frac{\mathbb{E}[\Delta I(a)] \times \text{Impact}(a)}{\text{Cost}_{\text{tokens}}(a) + \text{Cost}_{\text{latency}}(a)}$ to output the optimal next step: **`STOP_AND_ANSWER`**, **`ESCALATE_L2`**, **`QUERY_MACHINE_TWIN`**, **`FOLLOW_FRONTIER`**, **`REPORT_CONFLICT`**, or **`ABSTAIN`**.
+4. **Adaptive Holographic Resolution (`L0 -> L1 -> L2`) & Foveated Wavefront (`foragePages` / `forageUrls`)**:
    - **`L0` Pulse (~99 tokens/page — 1,449× smaller than HTML, 28× smaller than text)**: A 1-line "Semantic DNA strand" (`[L0 Product] Name | [✓S1]price=... | t=2025-11-10 | atoms: [§S4] ... | twin=...`).
    - **`L1` Epistemic Core (~413 tokens/page — 6.7× smaller than text)**: Schema + Specs + Surprisal-Distilled Epistemic Atoms + Temporal Cone + Machine Twins + Frontier (zero narrative prose).
    - **`forageUrls()` Adaptive Escalation**: Scans all $N$ URLs at `L0`, promotes the highest-resonance pages to `L1`, checks `sufficiency.missingFacets`, and **automatically escalates from `L1` to `L2` Deep Inspection** only when a query facet remains unresolved in `L1`.
-4. **Surprisal-Driven Epistemic Distillation (`atoms` / `extractEpistemicAtoms`)**: Strips zero-surprise rhetorical scaffolding (*"Furthermore, it is important to note that..."*) and requires a non-parametric anchor (exact quantity/unit, constraint/negation, or temporal date) subordinated to semantic query relevance.
-5. **Relativistic Temporal Light-Cone (`temporal` / `computeTemporalCone`)**: Extracts spacetime coordinates (`publishedAt`, `modifiedAt`, `validThrough`), flags expired commercial offers (`⚠️EXPIRED_OFFER`), and anchors indexical time words (*"currently"*, *"this year"*, *"latest"*) in older documents.
-6. **Shadow API & Machine-Twin Autodiscovery (`machineTwins` / `discoverMachineTwins`)**: Detects native machine-readable twins hidden inside HTML — WordPress REST API (`application/json`), `/llms.txt`, Next.js SSR data routes (`/_next/data/<buildId>/...json`), Shopify `.json` product endpoints, and `/api/` or `/graphql` routes.
-7. **Information Foraging (`frontier`) & Copy-Discounted Bayesian Truth Fusion (`fusePages` / `fuseUrls`)**: Scores outbound links by Pirolli-Card **Information Scent** and resolves cross-source contradictions by detecting syndicated/cloned pages via 64-bit **SimHash Hamming distance ($\le 14$)** and discounting copy clusters by $1 / \sqrt{\text{clusterSize}}$ so cloned aggregators cannot outvote an independent corroborated source.
+5. **Surprisal-Driven Epistemic Distillation (`atoms`) & Relativistic Temporal Light-Cone (`temporal`)**: Strips zero-surprise rhetorical scaffolding, requires a non-parametric anchor (quantity, constraint, or date) subordinated to query relevance, flags expired offers (`⚠️EXPIRED_OFFER`), and anchors indexical time words (*"currently"*, *"this year"*).
+6. **Declarative Shadow API & Machine-Twin Autodiscovery (`machineTwins`)**: Detects same-origin JSON/API twins (`wp-json`, `/llms.txt`, `/_next/data/...json`, Shopify `.json`, feeds) while blocking private/loopback SSRF addresses, credentials, and cross-origin hosts.
+7. **Claim-Level Copy-Discounted Log-Odds Bayesian Fusion (`fusePages` / `fuseUrls`)**: Evaluates **both** page-level and **claim-neighborhood SimHash** similarity (so a comparator copying a manufacturer's price is discounted on `price` while retaining full independence on its own lab-measured `weight`), and computes calibrated **Log-Odds Bayesian Posteriors** $P(v \mid \mathcal{D}) \in (0, 0.99]$.
 
 ```js
 import { contextPages, forageUrls, fuseUrls, createLiveSearchServer, createAgentMiddleware } from '@agenticschema/server';
@@ -190,18 +193,18 @@ const wavefront = await forageUrls(
   { query: 'fast charge cycles at -30°C', foveaCount: 1 }
 );
 console.log(wavefront.context);      // Unified Foveated Wavefront with [✓S1]/[§S4] sigils
-console.log(wavefront.sufficiency);  // { verdict: 'ANSWERABLE' | 'PARTIAL_ESCALATE' | 'ABSTAIN', ... }
-console.log(wavefront.escalations);  // Automatic L0->L1 and L1->L2 escalations performed
+console.log(wavefront.sufficiency);  // { verdict, facetDiagnostics: [{ facet, status, maxConfidence }] }
+console.log(wavefront.controller);   // { action: 'STOP_AND_ANSWER' | 'FOLLOW_FRONTIER', evi, target }
 
 // B. Single-page Live Search with Multi-Facet Submodular Bottleneck or Holographic Resolution:
 const [page] = await contextPages(['https://en.wikipedia.org/wiki/Backpack'], {
   query: 'internal frame load capacity',
   resolution: 'L1', // 'L0' (~99 tok pulse) | 'L1' (~413 tok epistemic) | 'L2' (full hybrid)
 });
-console.log(page.evidence);      // Typed EvidenceNode[] graph (S1:corroborated .. S4:prose)
-console.log(page.sufficiency);   // Multi-facet coverage & ANSWERABLE / PARTIAL_ESCALATE / ABSTAIN
+console.log(page.evidence);      // Typed EvidenceNode[] with 4D confidence (extraction, agreement, source, freshness)
+console.log(page.controller);    // Active Inference EVI decision plan
 
-// C. Copy-Discounted Multi-Page Knowledge Graph Fusion (SimHash Independence + Bayesian Consensus):
+// C. Claim-Level Copy-Discounted Log-Odds Bayesian Fusion:
 const fused = await fuseUrls(
   ['https://store-a.example/camera', 'https://review-b.example/camera'],
   { query: 'price sensor weight', tokenBudget: 400 }

@@ -835,6 +835,74 @@ describe('token efficiency, list_* filtering/pagination, and universal scrape()'
     // The 2 clones are grouped into a copy cluster (independence < 1), while the official corroborated source wins
     expect(JSON.stringify(fused.consensus?.['offers'])).toContain('199.00');
   });
+
+  it('enforces per-facet sufficiency thresholds, absence taxonomy (SATISFIED vs NOT_PUBLISHED), EVI controller, Claim-Level Bayesian Fusion, and Machine-Twin SSRF blocking', () => {
+    const html = `<!doctype html><html><head>
+      <link rel="canonical" href="https://shop.example.com/products/tent">
+      <link rel="alternate" type="application/json" href="http://127.0.0.1:8080/internal.json">
+      <link rel="alternate" type="application/json" href="https://evil.example.net/exfil.json">
+      <link rel="alternate" type="application/json" href="https://shop.example.com/api/tent.json">
+      <script type="application/ld+json">{
+        "@context": "https://schema.org",
+        "@type": "Product",
+        "name": "Ultralight Tent",
+        "offers": { "@type": "Offer", "price": "399.00" }
+      }</script>
+    </head><body>
+      <dl><dt>Weight</dt><dd>1.2 kg</dd></dl>
+      <article>
+        <p>The Ultralight Tent costs 399.00 EUR and is built for alpine storms.</p>
+        <p>Every tent includes a repair warranty on zippers and poles.</p>
+      </article>
+    </body></html>`;
+
+    // 1. At L1, 'price' and 'weight' are SATISFIED, while 'fabric' is NOT_PUBLISHED in schema -> PARTIAL_ESCALATE + ESCALATE_L2
+    const l1 = toContext(html, {
+      baseUrl: 'https://shop.example.com/products/tent',
+      resolution: 'L1',
+      query: 'What is the price, weight, and fabric?',
+    });
+    const priceNode = l1.evidence.find((e) => e.predicate === 'offers.price')!;
+    expect(priceNode.confidence.agreement).toBe(0.92);
+    expect(priceNode.confidence.agreement).toBeLessThan(1.0);
+    expect(priceNode.confidence.source).toBeGreaterThan(0.7);
+
+    const priceDiag = l1.sufficiency.facetDiagnostics.find((d) => d.facet === 'price');
+    const weightDiag = l1.sufficiency.facetDiagnostics.find((d) => d.facet === 'specs' || d.facet === 'weight');
+    const fabricDiag = l1.sufficiency.facetDiagnostics.find((d) => d.facet === 'fabric');
+    expect(priceDiag?.status).toBe('SATISFIED');
+    expect(weightDiag?.status).toBe('SATISFIED');
+    expect(fabricDiag?.status).toBe('NOT_PUBLISHED');
+    expect(l1.sufficiency.verdict).toBe('PARTIAL_ESCALATE');
+    expect(l1.controller.action).toBe('ESCALATE_L2');
+    expect(l1.controller.evi).toBeGreaterThan(0);
+
+    // 2. Machine-Twin SSRF & Cross-Origin gate blocks 127.0.0.1 and evil.example.net, keeping only same-origin twin
+    const twinUrls = l1.machineTwins.map((t) => t.url);
+    expect(twinUrls).toContain('https://shop.example.com/api/tent.json');
+    expect(twinUrls).not.toContain('http://127.0.0.1:8080/internal.json');
+    expect(twinUrls).not.toContain('https://evil.example.net/exfil.json');
+
+    // 3. Claim-Level SimHash Dependency + Calibrated Log-Odds Bayesian Posteriors in fusePages()
+    const mfg = `<!doctype html><html><head><link rel="canonical" href="https://brand.test/laptop">
+      <script type="application/ld+json">{"@context":"https://schema.org","@type":"Product","name":"AeroBook 14","offers":{"@type":"Offer","price":"999"}}</script>
+      </head><body><dl><dt>Weight</dt><dd>1.8 kg</dd></dl><p>Official price 999 EUR. Standard chassis weight is 1.8 kg.</p></body></html>`;
+    const compA = `<!doctype html><html><head><link rel="canonical" href="https://comp-a.test/laptop">
+      <script type="application/ld+json">{"@context":"https://schema.org","@type":"Product","name":"AeroBook 14","offers":{"@type":"Offer","price":"999"}}</script>
+      </head><body><dl><dt>Weight</dt><dd>1.8 kg</dd></dl><p>Official price 999 EUR. Standard chassis weight is 1.8 kg.</p></body></html>`;
+    const compB = `<!doctype html><html><head><link rel="canonical" href="https://comp-b.test/laptop">
+      <script type="application/ld+json">{"@context":"https://schema.org","@type":"Product","name":"AeroBook 14","offers":{"@type":"Offer","price":"999"}}</script>
+      </head><body><dl><dt>Weight</dt><dd>2.0 kg</dd></dl><p>Official price 999 EUR. In our independent lab scale test with charger, weight measured 2.0 kg.</p></body></html>`;
+
+    const fused = fusePages([mfg, compA, compB]);
+    const weightConflict = fused.conflicts.find((c) => c.field === 'Weight');
+    expect(weightConflict).toBeDefined();
+    for (const v of weightConflict!.values) {
+      expect(v.posterior).toBeGreaterThan(0);
+      expect(v.posterior).toBeLessThanOrEqual(0.99);
+    }
+  });
 });
+
 
 
