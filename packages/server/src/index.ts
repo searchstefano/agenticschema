@@ -322,6 +322,267 @@ export async function forageUrls(
   return foragePages(pages, options);
 }
 
+const PRIVATE_HOST_RE =
+  /^(?:localhost|127\.\d+\.\d+\.\d+|10\.\d+\.\d+\.\d+|192\.168\.\d+\.\d+|172\.(?:1[6-9]|2\d|3[01])\.\d+\.\d+|169\.254\.\d+\.\d+|0\.0\.0\.0|\[::1\]|\[fe80:|\[fc00:|\[fd00:|\.local$|\.internal$)/i;
+
+function assertPublicUrl(rawUrl: string, allowedHosts: readonly string[] = []): string {
+  let parsed: URL;
+  try {
+    parsed = new URL(rawUrl);
+  } catch {
+    throw new Error(`${rawUrl}: invalid URL`);
+  }
+  if (parsed.protocol !== 'https:' && parsed.protocol !== 'http:') {
+    throw new Error(`${rawUrl}: scheme ${parsed.protocol} is not allowed`);
+  }
+  if (parsed.username || parsed.password) {
+    throw new Error(`${rawUrl}: credentials in URL are not allowed`);
+  }
+  const host = parsed.hostname.toLowerCase();
+  if (PRIVATE_HOST_RE.test(host) && !allowedHosts.map((h) => h.toLowerCase()).includes(host)) {
+    throw new Error(`${rawUrl}: private/loopback host ${host} is blocked for SSRF protection`);
+  }
+  return parsed.href;
+}
+
+/**
+ * Creates a dynamic Live Search MCP Server (`npx @agenticschema/server --live`)
+ * that replaces an LLM's built-in raw `WebFetch` with three epistemic tools:
+ * - `fetch_evidence`: Extracts the Canonical Evidence Graph (`[✓S1]`, `[#S3]`, `[§S4]`),
+ *   Epistemic Sufficiency Verdict, Relativistic Temporal Frame, and Shadow APIs from any URL.
+ * - `forage_urls`: Performs Adaptive Foveated Escalation (`L0 -> L1 -> L2`) across up to 10 URLs.
+ * - `fuse_sources`: Runs Independence-Weighted Multi-Source Fusion & Contradiction Detection.
+ */
+export function createLiveSearchServer(options: CreateServerOptions = {}): CreatedServer {
+  const server = new McpServer({
+    name: options.name ?? 'agenticschema-live-search',
+    version: options.version ?? '0.4.0',
+  });
+  const validator = new AjvJsonSchemaValidator();
+  const allowedHosts = options.allowedHosts ?? [];
+
+  server.registerTool(
+    'fetch_evidence',
+    {
+      description:
+        'Fetch any public URL and extract its AI-native Epistemic Context (Structured Schema + Specs + Surprisal Atoms + Provenance Sigils [✓S1]/[~S2]/[#S3]/[§S4] + Temporal Frame + Epistemic Sufficiency Verdict). Use this INSTEAD of raw WebFetch/curl to save 6x–32x tokens and verify claims.',
+      inputSchema: fromJsonSchema<Record<string, unknown>>(
+        {
+          type: 'object',
+          properties: {
+            url: { type: 'string', description: 'Public http/https URL to inspect.' },
+            query: {
+              type: 'string',
+              description: 'Question or search intent to project via Multi-Facet Submodular Bottleneck.',
+            },
+            resolution: {
+              type: 'string',
+              enum: ['L0', 'L1', 'L2'],
+              description: 'L0 (~99 tok pulse), L1 (~413 tok epistemic core, default), or L2 (full hybrid with prose).',
+            },
+            tokenBudget: {
+              type: 'number',
+              description: 'Optional hard BPE token ceiling (e.g. 120 or 250).',
+            },
+          },
+          required: ['url'],
+          additionalProperties: false,
+        },
+        validator
+      ),
+      annotations: {
+        readOnlyHint: true,
+        openWorldHint: true,
+      },
+    },
+    async (args) => {
+      try {
+        const safeUrl = assertPublicUrl(String(args?.['url'] ?? ''), allowedHosts);
+        const query = typeof args?.['query'] === 'string' ? args['query'] : undefined;
+        const resRaw = typeof args?.['resolution'] === 'string' ? args['resolution'].toUpperCase() : 'L1';
+        const resolution: 'L0' | 'L1' | 'L2' =
+          resRaw === 'L0' || resRaw === 'L1' || resRaw === 'L2' ? resRaw : 'L1';
+        const tokenBudget =
+          typeof args?.['tokenBudget'] === 'number' && Number.isFinite(args['tokenBudget'])
+            ? args['tokenBudget']
+            : undefined;
+
+        const [page] = await contextPages([safeUrl], {
+          ...options,
+          resolution,
+          ...(query ? { query } : {}),
+          ...(tokenBudget !== undefined ? { tokenBudget } : {}),
+        });
+        return {
+          content: [{ type: 'text' as const, text: page?.context ?? 'No content extracted.' }],
+        };
+      } catch (err) {
+        return {
+          isError: true,
+          content: [
+            {
+              type: 'text' as const,
+              text: JSON.stringify({
+                error: err instanceof Error ? err.message : String(err),
+              }),
+            },
+          ],
+        };
+      }
+    }
+  );
+
+  server.registerTool(
+    'forage_urls',
+    {
+      description:
+        'Explore multiple search result URLs simultaneously via Adaptive Foveated Escalation (L0 -> L1 -> L2): scans all URLs at L0 peripheral resolution, focuses L1 Evidence on the highest-resonance pages, and automatically escalates to L2 Deep Inspection if any query facet remains unresolved.',
+      inputSchema: fromJsonSchema<Record<string, unknown>>(
+        {
+          type: 'object',
+          properties: {
+            urls: {
+              type: 'array',
+              items: { type: 'string' },
+              description: 'List of 2 to 10 public URLs to explore concurrently.',
+            },
+            query: {
+              type: 'string',
+              description: 'Multi-aspect question or research goal.',
+            },
+            foveaCount: {
+              type: 'number',
+              description: 'Number of top pages to inspect in the fovea (default 2).',
+            },
+          },
+          required: ['urls', 'query'],
+          additionalProperties: false,
+        },
+        validator
+      ),
+      annotations: {
+        readOnlyHint: true,
+        openWorldHint: true,
+      },
+    },
+    async (args) => {
+      try {
+        const rawUrls = Array.isArray(args?.['urls']) ? args['urls'].slice(0, 10) : [];
+        const safeUrls = rawUrls.map((u) => assertPublicUrl(String(u), allowedHosts));
+        const query = typeof args?.['query'] === 'string' ? args['query'] : undefined;
+        const foveaCount =
+          typeof args?.['foveaCount'] === 'number' && Number.isFinite(args['foveaCount'])
+            ? args['foveaCount']
+            : undefined;
+
+        const htmlPages = await Promise.all(
+          safeUrls.map(async (url) => ({
+            url,
+            html: await fetchHtml(url, options),
+          }))
+        );
+        const wave = foragePages(
+          htmlPages.map((p) => p.html),
+          {
+            ...schemaOrgProfiles,
+            ...options,
+            ...(query ? { query } : {}),
+            ...(foveaCount !== undefined ? { foveaCount } : {}),
+          }
+        );
+        return {
+          content: [{ type: 'text' as const, text: wave.context }],
+        };
+      } catch (err) {
+        return {
+          isError: true,
+          content: [
+            {
+              type: 'text' as const,
+              text: JSON.stringify({
+                error: err instanceof Error ? err.message : String(err),
+              }),
+            },
+          ],
+        };
+      }
+    }
+  );
+
+  server.registerTool(
+    'fuse_sources',
+    {
+      description:
+        'Cross-verify facts or compare products across multiple URLs using Independence-Weighted Truth Discovery (discounting syndicated copies via SimHash, weighting by DOM corroboration and freshness, and preserving unresolved conflicts or building a Markdown Comparison Matrix).',
+      inputSchema: fromJsonSchema<Record<string, unknown>>(
+        {
+          type: 'object',
+          properties: {
+            urls: {
+              type: 'array',
+              items: { type: 'string' },
+              description: 'List of 2 to 10 public URLs to fuse.',
+            },
+            query: {
+              type: 'string',
+              description: 'Optional query to focus the comparison or consensus.',
+            },
+            mode: {
+              type: 'string',
+              enum: ['auto', 'consensus', 'comparison'],
+              description: 'Fusion mode (default auto).',
+            },
+          },
+          required: ['urls'],
+          additionalProperties: false,
+        },
+        validator
+      ),
+      annotations: {
+        readOnlyHint: true,
+        openWorldHint: true,
+      },
+    },
+    async (args) => {
+      try {
+        const rawUrls = Array.isArray(args?.['urls']) ? args['urls'].slice(0, 10) : [];
+        const safeUrls = rawUrls.map((u) => assertPublicUrl(String(u), allowedHosts));
+        const query = typeof args?.['query'] === 'string' ? args['query'] : undefined;
+        const modeRaw = typeof args?.['mode'] === 'string' ? args['mode'] : 'auto';
+        const mode: 'auto' | 'consensus' | 'comparison' =
+          modeRaw === 'consensus' || modeRaw === 'comparison' ? modeRaw : 'auto';
+
+        const fused = await fuseUrls(safeUrls, {
+          ...options,
+          mode,
+          ...(query ? { query } : {}),
+        });
+        return {
+          content: [{ type: 'text' as const, text: fused.context }],
+        };
+      } catch (err) {
+        return {
+          isError: true,
+          content: [
+            {
+              type: 'text' as const,
+              text: JSON.stringify({
+                error: err instanceof Error ? err.message : String(err),
+              }),
+            },
+          ],
+        };
+      }
+    }
+  );
+
+  return {
+    server,
+    tools: [],
+    diagnostics: [],
+  };
+}
+
 const AI_BOT_UA =
   /\b(ClaudeBot|Claude-Web|Anthropic-AI|OAI-SearchBot|ChatGPT-User|GPTBot|PerplexityBot|Google-Extended|CCBot|Applebot-Extended)\b/i;
 

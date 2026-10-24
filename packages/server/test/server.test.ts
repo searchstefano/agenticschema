@@ -9,6 +9,7 @@ import { InMemoryTransport } from '@modelcontextprotocol/server';
 import {
   contextPages,
   createAgentMiddleware,
+  createLiveSearchServer,
   createServer,
   createHttpHandler,
   fuseUrls,
@@ -538,5 +539,45 @@ describe('scrapePages and URL hardening', () => {
     expect(fused.mode).toBe('consensus');
     expect(fused.consensus).toMatchObject({ type: 'Product', name: 'Zaino Trekking 45L' });
   });
+
+  it('createLiveSearchServer exposes dynamic fetch_evidence, forage_urls, fuse_sources and blocks SSRF', async () => {
+    const mockFetch = (async () =>
+      new Response(PRODUCT_PAGE, {
+        headers: { 'content-type': 'text/html' },
+      })) as unknown as typeof globalThis.fetch;
+
+    const { server } = createLiveSearchServer({ fetchImpl: mockFetch });
+    const client = new Client({ name: 'test-live', version: '0.0.0' });
+    const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+    await Promise.all([client.connect(clientTransport), server.connect(serverTransport)]);
+
+    const { tools } = await client.listTools();
+    expect(tools.map((t) => t.name)).toEqual(
+      expect.arrayContaining(['fetch_evidence', 'forage_urls', 'fuse_sources'])
+    );
+
+    const okRes = await client.callTool({
+      name: 'fetch_evidence',
+      arguments: {
+        url: 'https://negozio.test/prodotto',
+        query: 'What is the price?',
+      },
+    });
+    expect(textOf(okRes as never)).toContain('Zaino Trekking 45L');
+    expect(textOf(okRes as never)).toContain('129.90');
+    expect(textOf(okRes as never)).toContain('Sufficiency:');
+
+    const ssrfRes = await client.callTool({
+      name: 'fetch_evidence',
+      arguments: {
+        url: 'http://127.0.0.1:8080/internal',
+      },
+    });
+    expect((ssrfRes as { isError?: boolean }).isError).toBe(true);
+    expect(textOf(ssrfRes as never)).toContain('blocked for SSRF protection');
+
+    await client.close();
+  });
 });
+
 

@@ -33,22 +33,22 @@ Tokens per page, averaged over the corpus, counted with `o200k_base`:
 | Raw HTML, as served | 143,770 | 442.0 KB | — | — |
 | Extracted text, what a competent scraper sends | 2,752 | ~11.2 KB | 52x | — |
 | AgenticSchema MCP tool output (`toTools`) | **1,013** | **3.0 KB** | **142x** | **2.7x** |
-| AgenticSchema `toContext L1` (Epistemic Core + Surprisal Atoms) | **454** | **1.4 KB** | **317x** | **6.1x** |
-| AgenticSchema `toContext` Submodular (`tokenBudget: 120`) | **225** | **0.8 KB** | **640x** | **12x** |
-| AgenticSchema `toContext L0` (Holographic Pulse) | **86** | **276 B** | **1,679x** | **32x** |
+| AgenticSchema `toContext L1` (Epistemic Core + Inline Sigils) | **413** | **1.2 KB** | **348x** | **6.7x** |
+| AgenticSchema `toContext` Submodular (hard `tokenBudget: 120`) | **110** | **0.4 KB** | **1,305x** | **25x** |
+| AgenticSchema `toContext L0` (Holographic Pulse + Sigils) | **99** | **276 B** | **1,449x** | **28x** |
 
 The 142x is the number that looks good in a headline and it is the wrong one to quote alone. Nobody
 serious feeds raw HTML to a model; a scraper strips the markup first, and that single step
-accounts for 52 of the 142. **Against a competent scraper the honest figure is 2.7x for full MCP tools, 6.1x for `L1` Epistemic Core, 12x for Submodular Bottleneck, and 32x for `L0` Holographic Pulse**, and it
+accounts for 52 of the 142. **Against a competent scraper the honest figure is 2.7x for full MCP tools, 6.7x for `L1` Epistemic Core, 25x for Submodular Bottleneck (`110` tokens under a hard `120`-token ceiling), and 28x for `L0` Holographic Pulse**, and it
 holds or improves across every vertical:
 
 | Vertical | Pages | Raw HTML | Extracted text | MCP `tools` | `L1` Epistemic | Submodular (`b=120`) | `L0` Pulse |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| reference | 50 | 62,730 | 3,699 | 208 (18x) | 622 (5.9x) | 216 (17x) | 118 (31x) |
-| news | 25 | 90,530 | 882 | 528 (1.7x) | 244 (3.6x) | 251 (3.5x) | 64 (14x) |
-| ecommerce | 75 | 240,151 | 2,912 | **1,567 (1.9x)** | **451 (6.5x)** | **217 (13x)** | **78 (37x)** |
-| recipe | 25 | 58,454 | 1,549 | **1,514 (1.0x)** | **340 (4.6x)** | **241 (6.4x)** | **64 (24x)** |
-| book | 2 | 287,454 | 11,534 | 191 (61x) | 439 (26x) | 198 (58x) | 80 (144x) |
+| reference | 50 | 62,730 | 3,699 | 208 (18x) | 550 (6.7x) | 108 (34x) | 121 (31x) |
+| news | 25 | 90,530 | 882 | 528 (1.7x) | 259 (3.4x) | 110 (8.0x) | 67 (13x) |
+| ecommerce | 75 | 240,151 | 2,912 | **1,567 (1.9x)** | **412 (7.1x)** | **112 (26x)** | **99 (29x)** |
+| recipe | 25 | 58,454 | 1,549 | **1,514 (1.0x)** | **292 (5.3x)** | **109 (14x)** | **89 (17x)** |
+| book | 2 | 287,454 | 11,534 | 191 (61x) | 460 (25x) | 100 (115x) | 95 (121x) |
 
 The ecommerce and recipe rows have moved as deduplication improved, and the progression is worth
 recording. Ecommerce started at 1,843 tokens when a `ProductGroup`'s price was unreachable;

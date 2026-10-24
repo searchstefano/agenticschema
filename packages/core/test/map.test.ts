@@ -728,5 +728,113 @@ describe('token efficiency, list_* filtering/pagination, and universal scrape()'
       'https://lab.example.com/specs/cycle-test.pdf'
     );
   });
+
+  it('builds Dual-Plane Evidence Graph with inline sigils ([✓S1], [~S2]) and Multi-Facet Query Sufficiency under hard tokenBudget', () => {
+    const html = `<!doctype html><html><head>
+      <link rel="canonical" href="https://store.example.com/camera-x">
+      <script type="application/ld+json">{
+        "@context": "https://schema.org",
+        "@type": "Product",
+        "name": "Camera X Pro",
+        "sku": "CAM-X-999",
+        "offers": {
+          "@type": "Offer",
+          "price": "899.00",
+          "priceCurrency": "EUR"
+        },
+        "aggregateRating": {
+          "@type": "AggregateRating",
+          "ratingValue": "4.9",
+          "reviewCount": "312"
+        }
+      }</script>
+    </head><body>
+      <main>
+        <h1>Camera X Pro</h1>
+        <p>Official price is 899.00 EUR with free shipping. Rated 4.9 out of 5 across 312 verified reviews.</p>
+      </main>
+    </body></html>`;
+
+    const res = toContext(html, {
+      baseUrl: 'https://store.example.com/camera-x',
+      query: 'What is the price and what is the rating?',
+      tokenBudget: 120,
+    });
+
+    // 1. Dual-Plane Evidence Graph contains structured nodes with S1:corroborated and S2:structured tiers
+    const priceNode = res.evidence.find((e) => e.predicate.endsWith('price'));
+    expect(priceNode).toBeDefined();
+    expect(priceNode!.tier).toBe('S1:corroborated');
+    expect(priceNode!.confidence.corroboration).toBeGreaterThan(0.9);
+
+    const skuNode = res.evidence.find((e) => e.predicate.endsWith('sku'));
+    expect(skuNode).toBeDefined();
+    expect(skuNode!.tier).toBe('S2:structured');
+
+    // 2. Inline sigils appear in serialized context without JSON bloat
+    expect(res.context).toContain('[✓S1]');
+
+    // 3. Multi-Facet Sufficiency covers both 'price' and 'rating' facets
+    expect(res.sufficiency.facets).toEqual(expect.arrayContaining(['price', 'rating']));
+    expect(res.sufficiency.coveredFacets).toEqual(expect.arrayContaining(['price', 'rating']));
+    expect(res.sufficiency.verdict).toBe('ANSWERABLE');
+
+    // 4. Hard BPE-calibrated token budget is strictly enforced
+    expect(res.estimatedTokens).toBeLessThanOrEqual(120);
+  });
+
+  it('foragePages() automatically escalates L1 -> L2 when L1 leaves query facets unresolved', () => {
+    // Structured JSON-LD has price, while the 'fabric' facet lives only in qualitative narrative prose
+    // (without numbers, constraints, or temporal anchors, so L1 does not extract it as an atom and must escalate to L2)
+    const pageWithDeepProse = `<!doctype html><html><head>
+      <link rel="canonical" href="https://gear.example.com/pack">
+      <script type="application/ld+json">{
+        "@context": "https://schema.org",
+        "@type": "Product",
+        "name": "Alpine Pack",
+        "offers": { "@type": "Offer", "price": "180.00" }
+      }</script>
+    </head><body>
+      <article>
+        <p>The Alpine Pack costs 180.00 EUR.</p>
+        <p>Every pack is handcrafted in Bergamo from recycled ripstop cordura fabric.</p>
+      </article>
+    </body></html>`;
+
+    const wave = foragePages([pageWithDeepProse], {
+      query: 'What is the price and fabric?',
+      foveaCount: 1,
+    });
+
+    expect(wave.escalations.some((e) => e.from === 'L1' && e.to === 'L2')).toBe(true);
+    expect(wave.fovea[0]!.resolution).toBe('L2');
+    expect(wave.context).toContain('recycled ripstop cordura fabric');
+  });
+
+  it('fusePages() discounts syndicated copy-clusters via SimHash so an independent corroborated source wins', () => {
+    const sharedBoilerplate =
+      'The ChronoWatch Titanium features sapphire crystal glass, automatic movement, brushed bezel, and water resistance for diving.';
+    // Two aggregator clones with near-identical text and uncorroborated stale price 250.00
+    const clone1 = `<!doctype html><html><head>
+      <link rel="canonical" href="https://deals-aggregator-1.example.org/watch">
+      <script type="application/ld+json">{"@context":"https://schema.org","@type":"Product","name":"ChronoWatch Titanium","offers":{"@type":"Offer","price":"250.00"}}</script>
+    </head><body><p>${sharedBoilerplate}</p></body></html>`;
+    const clone2 = `<!doctype html><html><head>
+      <link rel="canonical" href="https://deals-aggregator-2.example.org/watch">
+      <script type="application/ld+json">{"@context":"https://schema.org","@type":"Product","name":"ChronoWatch Titanium","offers":{"@type":"Offer","price":"250.00"}}</script>
+    </head><body><p>${sharedBoilerplate}</p></body></html>`;
+
+    // Official first-party brand page with distinct prose that corroborates the updated price 199.00
+    const official = `<!doctype html><html><head>
+      <link rel="canonical" href="https://chronowatch.com/titanium">
+      <script type="application/ld+json">{"@context":"https://schema.org","@type":"Product","name":"ChronoWatch Titanium","offers":{"@type":"Offer","price":"199.00"}}</script>
+    </head><body><article><p>Buy ChronoWatch Titanium directly from the manufacturer for 199.00 EUR with certified chronometer calibration.</p></article></body></html>`;
+
+    const fused = fusePages([clone1, clone2, official]);
+    expect(fused.mode).toBe('consensus');
+    // The 2 clones are grouped into a copy cluster (independence < 1), while the official corroborated source wins
+    expect(JSON.stringify(fused.consensus?.['offers'])).toContain('199.00');
+  });
 });
+
 

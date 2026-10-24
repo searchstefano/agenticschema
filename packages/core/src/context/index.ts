@@ -14,13 +14,68 @@ export interface FieldProvenance {
   verifiedInText: boolean;
 }
 
+export type EvidenceTier =
+  | 'S1:corroborated'
+  | 'S2:structured'
+  | 'S3:tabular'
+  | 'S4:prose'
+  | 'S5:meta';
+
+export type EvidenceSigil = '[✓S1]' | '[~S2]' | '[#S3]' | '[§S4]' | '[~S5]' | '[!CONFLICT]';
+
+export interface EvidenceNode {
+  /** Subject entity name or identifier. */
+  subject: string;
+  /** Property name or claim category. */
+  predicate: string;
+  /** Normalized scalar or atomic claim value. */
+  value: string;
+  /** Epistemic hierarchy tier (`S1:corroborated` > `S3:tabular` > `S2:structured` > `S4:prose` > `S5:meta`). */
+  tier: EvidenceTier;
+  /** Ultra-compact 2-token inline sigil for LLM attention binding without JSON wrapper bloat. */
+  sigil: EvidenceSigil;
+  /** Provenance coordinates. */
+  provenance: {
+    url?: string;
+    source: 'jsonld' | 'microdata' | 'rdfa' | 'table-dl' | 'hydration' | 'prose' | 'meta';
+    field: string;
+    verifiedInText: boolean;
+  };
+  /** Multi-dimensional epistemic confidence ($C(f), T(f), U(f,q)$). */
+  confidence: {
+    /** Parser/structural extraction reliability ($0..1$). */
+    extraction: number;
+    /** Corroboration/source reliability weight ($C(f) \in [0, 1]$). */
+    corroboration: number;
+    /** Temporal freshness factor ($T(f) \in [0, 1]$). */
+    freshness: number;
+    /** Combined query-driven epistemic utility $U(f,q) = R(f,q) \cdot C(f) \cdot T(f) \cdot N(f)$. */
+    utility: number;
+  };
+}
+
+export interface EpistemicSufficiency {
+  /** Decomposed orthogonal sub-questions / requirements extracted from `query`. */
+  facets: string[];
+  /** Query facets satisfied by corroborated or structured evidence on the page(s). */
+  coveredFacets: string[];
+  /** Query facets still unresolved (requiring escalation to `L2` or a `frontier` hop, or abstention). */
+  missingFacets: string[];
+  /** Fraction of query facets resolved ($0..1$). */
+  score: number;
+  /** Actionable epistemic decision for the agent (`ANSWERABLE`, `PARTIAL_ESCALATE`, or `ABSTAIN`). */
+  verdict: 'ANSWERABLE' | 'PARTIAL_ESCALATE' | 'ABSTAIN';
+}
+
 export interface EpistemicAtom {
   /** Compressed proposition stripped of zero-surprise rhetorical scaffolding. */
   claim: string;
-  /** Non-parametric epistemic surprisal density (bits of novel information per token). */
+  /** Non-parametric epistemic surprisal density (bits of novel information per token), subordinated to query relevance and entity grounding. */
   surprisal: number;
   /** Semantic category of the atomic proposition. */
   kind: 'metric' | 'constraint' | 'temporal' | 'fact';
+  /** Inline epistemic sigil (`[§S4]` or `[✓S1]`). */
+  sigil?: EvidenceSigil;
 }
 
 export interface TemporalCone {
@@ -91,8 +146,12 @@ export interface ContextOptions extends PipelineOptions {
 export interface ContextResult {
   /** One-shot hybrid context string ready to inject into an LLM prompt (zero extra turns). */
   context: string;
-  /** Ultra-compact ~35-token `L0` Holographic Pulse ("Semantic DNA strand") of the page. */
+  /** Ultra-compact `L0` Holographic Pulse ("Semantic DNA strand") of the page (~86 `o200k_base` tokens mean). */
   pulse: string;
+  /** Canonical Evidence Graph nodes with provenance, tier (`S1`–`S5`), inline sigils, and $U(f,q)$ utility. */
+  evidence: EvidenceNode[];
+  /** Multi-facet query coverage & epistemic sufficiency analysis (`ANSWERABLE` | `PARTIAL_ESCALATE` | `ABSTAIN`). */
+  sufficiency: EpistemicSufficiency;
   /** Primary entity materialized as clean JSON (projected to query-relevant fields if `query` + `tokenBudget` are set). */
   primary?: JsonObject;
   /** All non-action entities materialized on the page. */
@@ -105,7 +164,7 @@ export interface ContextResult {
   atoms: EpistemicAtom[];
   /** Relativistic temporal coordinates and offer-expiry / indexical-drift warnings. */
   temporal: TemporalCone;
-  /** Discovered native JSON APIs, `/llms.txt`, Next.js data routes, or feeds embedded in the page. */
+  /** Discovered native JSON APIs, `/llms.txt`, Next.js data routes, or feeds embedded in the page (declarative discovery only; never auto-executed). */
   machineTwins: MachineTwin[];
   /** Information-Foraging-ranked next-hop links that resolve what this page leaves unanswered. */
   frontier: FrontierLink[];
@@ -123,34 +182,43 @@ export interface ContextResult {
   prose: string;
   /** 64-bit locality-sensitive SimHash fingerprint (16-char hex) of the page's semantic content. */
   fingerprint: string;
-  /** Estimated token count (~4 chars/token heuristic) of `context`. */
+  /** Estimated BPE token count (`o200k_base`-calibrated) of `context`. */
   estimatedTokens: number;
   /** Pipeline diagnostics. */
   diagnostics: Diagnostic[];
 }
 
 export interface ForagedWavefrontResult {
-  /** Unified foveated wavefront context (Foveal L1/L2 on winning pages + Peripheral L0 pulses on the rest + Global Frontier). */
+  /** Unified foveated wavefront context (Adaptive L0 -> L1 -> L2 escalation + Peripheral L0 pulses + Global Frontier). */
   context: string;
-  /** Pages selected for deep foveal inspection (`L1`/`L2`), ranked by epistemic resonance. */
-  fovea: Array<{ url?: string; resonance: number; page: ContextResult }>;
-  /** Remaining pages kept in peripheral vision as 1-line `L0` Holographic Pulses (~30 tokens each). */
+  /** Pages selected for deep foveal inspection (`L1` or auto-escalated `L2`), ranked by epistemic resonance. */
+  fovea: Array<{ url?: string; resonance: number; resolution: 'L1' | 'L2'; page: ContextResult }>;
+  /** Remaining pages kept in peripheral vision as 1-line `L0` Holographic Pulses (~86 tokens mean). */
   periphery: Array<{ url?: string; resonance: number; pulse: string }>;
-  /** Deduped shadow APIs / machine twins discovered across all pages. */
+  /** Record of dynamic resolution escalations (`L0 -> L1 -> L2`) triggered by unresolved query facets. */
+  escalations: Array<{ url: string; from: 'L0' | 'L1'; to: 'L1' | 'L2'; reason: string }>;
+  /** Aggregate epistemic sufficiency across all inspected pages. */
+  sufficiency: EpistemicSufficiency;
+  /** Deduped shadow APIs / machine twins discovered across all pages (declarative only). */
   machineTwins: MachineTwin[];
   /** Global epistemic frontier: highest-scent unexplored next-hop links across all pages. */
   frontier: FrontierLink[];
-  /** Estimated total tokens of `context`. */
+  /** Estimated total BPE tokens of `context`. */
   estimatedTokens: number;
 }
 
 export interface FieldConflict {
   field: string;
+  /** True when independent sources disagree strongly enough that forcing a single consensus would hide a real contradiction. */
+  unresolved?: boolean;
   values: Array<{
     value: string;
     sources: string[];
     verifiedInText: boolean;
+    /** Independence-discounted & freshness/authority-weighted epistemic score. */
     confidence: number;
+    /** Number of independent (non-copied) source clusters supporting this value. */
+    independentClusters?: number;
   }>;
 }
 
@@ -159,17 +227,19 @@ export interface FusedContextResult {
   context: string;
   /** Mode automatically chosen or requested (`'consensus'` for same-subject pages, `'comparison'` for distinct entities). */
   mode: 'consensus' | 'comparison';
-  /** Bayesian consensus entity merged across pages ( weighted by `verifiedInText` provenance). */
+  /** Independence-weighted consensus entity merged across pages (with unresolved contradictions preserved as arrays/conflicts). */
   consensus?: JsonObject;
   /** Markdown comparison table aligning distinct entities side-by-side across pages. */
   comparisonTable?: string;
   /** Detected cross-page contradictions (e.g. different prices or dates across sources). */
   conflicts: FieldConflict[];
+  /** Subset of `conflicts` where two independent sources disagree closely enough that no single value can be trusted alone. */
+  unresolvedConflicts: FieldConflict[];
   /** Cross-page deduplicated prose passages with source citations `[1]`, `[2]`. */
   passages: Array<{ text: string; sources: string[] }>;
   /** Individual page context results. */
   pages: ContextResult[];
-  /** Estimated total tokens of the fused `context`. */
+  /** Estimated total BPE tokens of the fused `context`. */
   estimatedTokens: number;
 }
 
@@ -251,23 +321,43 @@ const STOPWORDS = new Set([
   'les', 'des', 'est', 'dans', 'pour', 'avec', 'sur', 'que', 'qui', 'quel', 'quelle',
 ]);
 
-/** Maps multilingual query concepts to Schema.org property names for zero-LLM intent projection. */
-const INTENT_MAP: ReadonlyArray<readonly [RegExp, readonly string[]]> = [
-  [/\b(price|prezzo|prezzi|cost|costo|costa|combien|prix|eur|usd|euro|dollar|cheap|economico|buy|acquisto)\b/i, ['offers', 'price', 'priceCurrency', 'availability', 'sku']],
-  [/\b(rating|voto|recensioni|review|reviews|stars|stelle|avis|score|punteggio|valutazione)\b/i, ['aggregateRating', 'ratingValue', 'reviewCount', 'bestRating', 'review']],
-  [/\b(author|autore|who|chi|written|scritto|byline|journalist|giornalista|creator|publisher|editore)\b/i, ['author', 'creator', 'publisher', 'visibleByline']],
-  [/\b(when|quando|date|data|published|pubblicato|modified|aggiornato|start|inizio|uscita)\b/i, ['datePublished', 'dateModified', 'startDate', 'endDate', 'uploadDate']],
-  [/\b(time|tempo|minutes|minuti|hours|ore|cook|cottura|prep|preparazione|duration|durata)\b/i, ['cookTime', 'prepTime', 'totalTime', 'duration']],
-  [/\b(yield|servings|porzioni|persone|dosi|makes|quantit)\b/i, ['recipeYield', 'nutrition', 'calories']],
-  [/\b(ingredient|ingredienti|ingredients|ingrédients)\b/i, ['recipeIngredient']],
-  [/\b(step|steps|instruction|istruzioni|procedimento|ricetta|prepare|preparare)\b/i, ['recipeInstructions']],
-  [/\b(weight|peso|dimension|dimensioni|size|taglia|material|materiale|spec|specifiche|warranty|garanzia|waterproof|impermeabile)\b/i, ['weight', 'height', 'width', 'depth', 'material', 'color', 'brand', 'sku']],
+/**
+ * BPE-calibrated token estimator aligned with `o200k_base`:
+ * Accounts for both alphanumeric subwords (~3.8 chars/token) and JSON/Markdown
+ * structural punctuation (`{}[]:,"`), which each consume a separate BPE token.
+ */
+export function estimateBpeTokens(text: string): number {
+  if (!text) return 0;
+  const punctCount = (text.match(/[{}[\]:,"'`#|<>=\\]/g) ?? []).length;
+  const wordChars = text.length - punctCount;
+  return Math.max(1, Math.ceil(wordChars / 3.8 + punctCount * 0.65));
+}
+
+/** Maps multilingual query concepts to named epistemic facets and Schema.org property names. */
+const INTENT_FACETS: ReadonlyArray<readonly [string, RegExp, readonly string[]]> = [
+  ['price', /\b(price|prezzo|prezzi|cost|costo|costa|combien|prix|eur|usd|euro|dollar|cheap|economico|buy|acquisto)\b/i, ['offers', 'price', 'priceCurrency', 'availability', 'sku']],
+  ['rating', /\b(rating|voto|recensioni|review|reviews|stars|stelle|avis|score|punteggio|valutazione|valutato)\b/i, ['aggregateRating', 'ratingValue', 'reviewCount', 'bestRating', 'review']],
+  ['author', /\b(author|autore|who|chi|written|scritto|byline|journalist|giornalista|creator|publisher|editore)\b/i, ['author', 'creator', 'publisher', 'visibleByline']],
+  ['date', /\b(when|quando|date|data|published|pubblicato|modified|aggiornato|start|inizio|uscita)\b/i, ['datePublished', 'dateModified', 'startDate', 'endDate', 'uploadDate']],
+  ['time', /\b(time|tempo|minutes|minuti|hours|ore|cook|cottura|prep|preparazione|duration|durata)\b/i, ['cookTime', 'prepTime', 'totalTime', 'duration']],
+  ['yield', /\b(yield|servings|porzioni|persone|dosi|makes|quantit)\b/i, ['recipeYield', 'nutrition', 'calories']],
+  ['ingredients', /\b(ingredient|ingredienti|ingredients|ingrédients)\b/i, ['recipeIngredient']],
+  ['steps', /\b(step|steps|instruction|istruzioni|procedimento|ricetta|prepare|preparare)\b/i, ['recipeInstructions']],
+  ['warranty', /\b(warranty|garanzia|guarantee|riparazione|repair|return|reso)\b/i, ['warranty', 'hasMerchantReturnPolicy', 'description']],
+  ['specs', /\b(weight|peso|dimension|dimensioni|size|taglia|material|materiale|spec|specifiche|waterproof|impermeabile|battery|batteria)\b/i, ['weight', 'height', 'width', 'depth', 'material', 'color', 'brand', 'sku']],
 ];
+
+interface QueryFacet {
+  id: string;
+  terms: string[];
+  fields: Set<string>;
+}
 
 interface QueryProfile {
   terms: string[];
   trigrams: Set<string>;
   boostedFields: Set<string>;
+  facets: QueryFacet[];
 }
 
 function buildQueryProfile(query: string): QueryProfile {
@@ -284,12 +374,38 @@ function buildQueryProfile(query: string): QueryProfile {
     }
   }
   const boostedFields = new Set<string>(['type', 'name', 'headline', 'title']);
-  for (const [pattern, fields] of INTENT_MAP) {
+  const facets: QueryFacet[] = [];
+  const assignedTerms = new Set<string>();
+
+  for (const [facetId, pattern, fields] of INTENT_FACETS) {
     if (pattern.test(query)) {
-      for (const f of fields) boostedFields.add(f.toLowerCase());
+      const fieldSet = new Set<string>();
+      for (const f of fields) {
+        const lower = f.toLowerCase();
+        boostedFields.add(lower);
+        fieldSet.add(lower);
+      }
+      const matchingTerms = terms.filter((t) => pattern.test(t) || fieldSet.has(t));
+      for (const t of matchingTerms) assignedTerms.add(t);
+      facets.push({
+        id: facetId,
+        terms: matchingTerms.length > 0 ? matchingTerms : [facetId],
+        fields: fieldSet,
+      });
     }
   }
-  return { terms, trigrams, boostedFields };
+
+  // Group any remaining unclustered query terms into distinct lexical facets (max 3 extra)
+  const leftover = terms.filter((t) => !assignedTerms.has(t) && t.length >= 3);
+  for (const t of leftover.slice(0, 3)) {
+    facets.push({
+      id: t,
+      terms: [t],
+      fields: new Set([t]),
+    });
+  }
+
+  return { terms, trigrams, boostedFields, facets };
 }
 
 function extractFeatures(text: string, profile: QueryProfile): Set<string> {
@@ -304,60 +420,117 @@ function extractFeatures(text: string, profile: QueryProfile): Set<string> {
   return matched;
 }
 
+function matchedFacetsFor(keyLower: string, textLower: string, profile: QueryProfile): string[] {
+  const hit: string[] = [];
+  for (const facet of profile.facets) {
+    if (
+      facet.fields.has(keyLower) ||
+      facet.terms.some((t) => keyLower.includes(t) || textLower.includes(t))
+    ) {
+      hit.push(facet.id);
+    }
+  }
+  return hit;
+}
+
 /**
  * Projects a structured JSON entity down to its core identity (`type`, `name`,
- * `headline`) plus the properties with highest mutual information with `query`.
+ * `headline`) plus the properties maximizing multi-facet epistemic utility
+ * $U(f, q) = R(f, q) \cdot C(f) \cdot T(f) \cdot N(f \mid S)$.
  */
 function projectEntityForQuery(
   entity: JsonObject,
   profile: QueryProfile,
-  tokenBudget?: number
+  tokenBudget?: number,
+  provenance: readonly FieldProvenance[] = [],
+  freshness = 1.0
 ): JsonObject {
   if (profile.terms.length === 0 && !tokenBudget) return entity;
 
   const projected: JsonObject = {};
-  for (const coreKey of ['type', 'name', 'headline', 'url']) {
+  for (const coreKey of ['type', 'name', 'headline']) {
     if (Object.hasOwn(entity, coreKey)) projected[coreKey] = entity[coreKey]!;
   }
 
-  const scoredKeys: Array<{ key: string; val: JsonValue; score: number; cost: number }> = [];
+  const candidates: Array<{
+    key: string;
+    val: JsonValue;
+    baseUtility: number;
+    facets: string[];
+    cost: number;
+  }> = [];
+
   for (const [key, rawVal] of Object.entries(entity)) {
     if (Object.hasOwn(projected, key) || rawVal === undefined) continue;
     const val: JsonValue =
-      tokenBudget !== undefined && Array.isArray(rawVal) && rawVal.length > 3
+      tokenBudget !== undefined && Array.isArray(rawVal) && rawVal.length > 2
         ? (rawVal.slice(0, 2) as JsonValue)
         : rawVal;
     const serialized = JSON.stringify(val);
     const features = extractFeatures(`${key} ${serialized}`, profile);
     const keyLower = key.toLowerCase();
-    let score = features.size * 2;
-    if (profile.boostedFields.has(keyLower)) score += 10;
+    const textLower = serialized.toLowerCase();
+
+    let relevance = features.size * 2.0;
+    if (profile.boostedFields.has(keyLower)) relevance += 10.0;
     for (const term of profile.terms) {
-      if (keyLower.includes(term)) score += 6;
+      if (keyLower.includes(term)) relevance += 6.0;
     }
-    if (profile.terms.length === 0 && ['offers', 'aggregaterating', 'brand', 'author', 'datepublished', 'sku', 'totaltime', 'recipeyield'].includes(keyLower)) {
-      score += 8;
+    if (
+      profile.terms.length === 0 &&
+      ['offers', 'aggregaterating', 'brand', 'author', 'datepublished', 'sku', 'totaltime', 'recipeyield'].includes(keyLower)
+    ) {
+      relevance += 8.0;
     }
-    const cost = Math.max(1, Math.ceil((key.length + serialized.length) / 4));
-    scoredKeys.push({ key, val, score, cost });
+
+    // Corroboration confidence C(f): verified in visible DOM = 1.0, unverified markup = 0.78
+    const prov = provenance.find((p) => p.field === key || p.field.startsWith(`${key}.`));
+    const conf = prov?.verifiedInText ? 1.0 : 0.78;
+
+    const facets = matchedFacetsFor(keyLower, textLower, profile);
+    const cost = Math.max(1, estimateBpeTokens(`"${key}":${serialized},`));
+    candidates.push({
+      key,
+      val,
+      baseUtility: relevance * conf * freshness,
+      facets,
+      cost,
+    });
   }
 
-  // Sort by relevance density (score / sqrt(cost))
-  scoredKeys.sort((a, b) => b.score / Math.sqrt(b.cost) - a.score / Math.sqrt(a.cost));
+  let usedTokens = estimateBpeTokens(JSON.stringify(projected));
+  const entityCeiling = tokenBudget ? Math.max(22, Math.floor(tokenBudget * 0.45)) : Infinity;
+  const coveredFacets = new Set<string>();
+  const picked = new Set<string>();
 
-  let usedTokens = Math.ceil(JSON.stringify(projected).length / 4);
-  const entityCeiling = tokenBudget ? Math.max(25, Math.floor(tokenBudget * 0.5)) : Infinity;
+  // Greedy submodular loop over entity properties: prioritizes uncovered query facets N(f | S)
+  while (picked.size < candidates.length) {
+    let best: (typeof candidates)[0] | undefined;
+    let bestDensity = -1;
 
-  for (const item of scoredKeys) {
-    // If a strict tokenBudget is active and this field has 0 query relevance, skip it
-    if (tokenBudget !== undefined && item.score === 0 && Object.keys(projected).length >= 2) {
-      continue;
+    for (const cand of candidates) {
+      if (picked.has(cand.key)) continue;
+      if (tokenBudget !== undefined && cand.baseUtility <= 0 && Object.keys(projected).length >= 2) {
+        continue;
+      }
+      if (usedTokens + cand.cost > entityCeiling && Object.keys(projected).length >= 2) {
+        continue;
+      }
+      const uncoveredFacetCount = cand.facets.filter((f) => !coveredFacets.has(f)).length;
+      const noveltyMultiplier = uncoveredFacetCount > 0 ? 1.0 + uncoveredFacetCount * 3.0 : 0.35;
+      const utility = cand.baseUtility * noveltyMultiplier;
+      const density = utility / Math.sqrt(cand.cost);
+      if (density > bestDensity) {
+        bestDensity = density;
+        best = cand;
+      }
     }
-    if (usedTokens + item.cost > entityCeiling && Object.keys(projected).length >= 2) {
-      continue;
-    }
-    projected[item.key] = item.val;
-    usedTokens += item.cost;
+
+    if (!best) break;
+    picked.add(best.key);
+    projected[best.key] = best.val;
+    usedTokens += best.cost;
+    for (const f of best.facets) coveredFacets.add(f);
   }
 
   return projected;
@@ -365,20 +538,21 @@ function projectEntityForQuery(
 
 /**
  * Greedy Submodular Maximum Coverage under a Knapsack Token Budget:
- * selects prose segments that maximize coverage of uncovered query terms and
- * character 3-grams per token spent.
+ * selects prose segments that maximize multi-facet epistemic utility
+ * $U(s, q) = R(s, q) \cdot C(s) \cdot N(s \mid S)$ per token spent.
  */
 function selectSubmodularSegments(
   segments: readonly string[],
   profile: QueryProfile,
-  maxTokens: number
+  maxTokens: number,
+  alreadyCoveredFacets: ReadonlySet<string> = new Set()
 ): string[] {
   if (maxTokens <= 0 || segments.length === 0) return [];
   if (profile.terms.length === 0) {
     const out: string[] = [];
     let tokens = 0;
     for (const seg of segments) {
-      const cost = Math.ceil(seg.length / 4);
+      const cost = estimateBpeTokens(seg);
       if (tokens + cost > maxTokens) break;
       out.push(seg);
       tokens += cost;
@@ -390,11 +564,13 @@ function selectSubmodularSegments(
     seg,
     idx,
     features: extractFeatures(seg, profile),
-    cost: Math.max(1, Math.ceil(seg.length / 4)),
+    facets: matchedFacetsFor('', seg.toLowerCase(), profile),
+    cost: Math.max(1, estimateBpeTokens(seg)),
     picked: false,
   }));
 
   const covered = new Set<string>();
+  const coveredFacets = new Set<string>(alreadyCoveredFacets);
   const selectedIndices: number[] = [];
   let usedTokens = 0;
 
@@ -408,7 +584,11 @@ function selectSubmodularSegments(
       let gain = 0;
       for (const feat of cand.features) {
         const weight = feat.startsWith('w:') ? 4.0 : 1.0;
-        gain += covered.has(feat) ? weight * 0.15 : weight;
+        gain += covered.has(feat) ? weight * 0.12 : weight;
+      }
+      // Boost segments that resolve a query facet still missing from structured data
+      for (const f of cand.facets) {
+        if (!coveredFacets.has(f)) gain += 8.0;
       }
       // Small position prior so lead summary sentences win ties
       if (cand.idx === 0) gain += 0.5;
@@ -424,6 +604,7 @@ function selectSubmodularSegments(
     selectedIndices.push(best.idx);
     usedTokens += best.cost;
     for (const feat of best.features) covered.add(feat);
+    for (const f of best.facets) coveredFacets.add(f);
   }
 
   // Preserve original document reading order among selected segments
@@ -837,7 +1018,7 @@ export function extractEpistemicAtoms(
       bits += metricMatches.length * 4.5;
       kind = 'metric';
     } else if (/\b\d+(?:[.,]\d+)?\b/.test(cleaned)) {
-      bits += 2.2;
+      bits += 1.6;
     }
 
     if (CONSTRAINT_NEGATION_RE.test(cleaned)) {
@@ -846,16 +1027,27 @@ export function extractEpistemicAtoms(
     }
 
     if (TEMPORAL_MARKER_RE.test(cleaned)) {
-      bits += 2.5;
+      bits += 2.2;
       if (kind === 'fact') kind = 'temporal';
     }
 
+    // Epistemic atoms at L1 must carry a non-parametric anchor (quantity, constraint, or date);
+    // purely qualitative narrative sentences belong to L2 Deep Inspection prose.
+    if (bits === 0) continue;
+
+    // Subordinate raw surprisal to semantic query relevance when a query is present
     if (profile && profile.terms.length > 0) {
       const feats = extractFeatures(cleaned, profile);
-      bits += feats.size * 3.0;
+      const facets = matchedFacetsFor('', norm, profile);
+      if (feats.size > 0 || facets.length > 0) {
+        bits = bits * 1.2 + feats.size * 3.5 + facets.length * 4.0;
+      } else {
+        // Discount unaligned numbers so random figures don't outrank query-relevant claims
+        bits *= 0.45;
+      }
     }
 
-    const tokenCost = Math.max(4, Math.ceil(cleaned.length / 4));
+    const tokenCost = Math.max(4, estimateBpeTokens(cleaned));
     const surprisal = Number((bits / Math.pow(tokenCost, 0.55)).toFixed(2));
     if (surprisal < 0.75) continue;
 
@@ -864,6 +1056,7 @@ export function extractEpistemicAtoms(
       claim: cleaned.length > 180 ? `${cleaned.slice(0, 177)}...` : cleaned,
       surprisal,
       kind,
+      sigil: '[§S4]',
     });
   }
 
@@ -1157,8 +1350,233 @@ export function extractEpistemicFrontier(
 }
 
 /**
- * Synthesizes the ~35-token `L0` Holographic Pulse ("Semantic DNA strand") of a page.
+ * Builds the Canonical Evidence Graph (`EvidenceNode[]`) ranking every datum by
+ * its Epistemic Hierarchy Tier (`S1:corroborated` > `S3:tabular` > `S2:structured`
+ * > `S4:prose` > `S5:meta`) and multi-factor utility $U(f,q) = R(f,q)\cdot C(f)\cdot T(f)\cdot N(f)$.
  */
+function buildEvidenceGraph(
+  subject: string,
+  primary: JsonObject | undefined,
+  specs: Record<string, string>,
+  hydration: JsonObject | undefined,
+  atoms: readonly EpistemicAtom[],
+  provenance: readonly FieldProvenance[],
+  temporal: TemporalCone,
+  url: string | undefined,
+  profile: QueryProfile | undefined
+): EvidenceNode[] {
+  const nodes: EvidenceNode[] = [];
+  const freshness = temporal.isExpiredOffer
+    ? 0.35
+    : temporal.ageDays !== undefined
+      ? Number(Math.max(0.4, Math.exp(-temporal.ageDays / 3650)).toFixed(2))
+      : 0.95;
+
+  const scoreRelevance = (key: string, val: string): number => {
+    if (!profile || profile.terms.length === 0) return 1.0;
+    const feats = extractFeatures(`${key} ${val}`, profile);
+    const facets = matchedFacetsFor(key.toLowerCase(), val.toLowerCase(), profile);
+    return Math.max(0.2, 1.0 + feats.size * 1.5 + facets.length * 2.5);
+  };
+
+  if (primary) {
+    for (const [k, v] of Object.entries(primary)) {
+      if (k === 'type' || v === undefined) continue;
+      const valStr = scalarOf(v) ?? JSON.stringify(v).slice(0, 120);
+      if (!valStr) continue;
+      const prov = provenance.find((p) => p.field === k || p.field.startsWith(`${k}.`));
+      const predicate = prov?.field ?? k;
+      const verified = prov?.verifiedInText ?? false;
+      const tier: EvidenceTier = verified ? 'S1:corroborated' : 'S2:structured';
+      const sigil: EvidenceSigil = verified ? '[✓S1]' : '[~S2]';
+      const corroboration = verified ? 1.0 : 0.78;
+      const rel = scoreRelevance(predicate, valStr);
+      nodes.push({
+        subject,
+        predicate,
+        value: valStr,
+        tier,
+        sigil,
+        provenance: {
+          ...(url ? { url } : {}),
+          source: prov?.syntax ?? 'jsonld',
+          field: predicate,
+          verifiedInText: verified,
+        },
+        confidence: {
+          extraction: 0.99,
+          corroboration,
+          freshness,
+          utility: Number((rel * corroboration * freshness).toFixed(2)),
+        },
+      });
+    }
+  }
+
+  for (const [k, v] of Object.entries(specs)) {
+    const rel = scoreRelevance(k, v);
+    nodes.push({
+      subject,
+      predicate: k,
+      value: v,
+      tier: 'S3:tabular',
+      sigil: '[#S3]',
+      provenance: {
+        ...(url ? { url } : {}),
+        source: 'table-dl',
+        field: `specs.${k}`,
+        verifiedInText: true,
+      },
+      confidence: {
+        extraction: 0.94,
+        corroboration: 0.9,
+        freshness,
+        utility: Number((rel * 0.9 * freshness).toFixed(2)),
+      },
+    });
+  }
+
+  if (hydration && !primary) {
+    for (const [k, v] of Object.entries(hydration)) {
+      const valStr = scalarOf(v);
+      if (!valStr) continue;
+      const rel = scoreRelevance(k, valStr);
+      nodes.push({
+        subject,
+        predicate: k,
+        value: valStr,
+        tier: 'S3:tabular',
+        sigil: '[#S3]',
+        provenance: {
+          ...(url ? { url } : {}),
+          source: 'hydration',
+          field: `hydration.${k}`,
+          verifiedInText: false,
+        },
+        confidence: {
+          extraction: 0.92,
+          corroboration: 0.85,
+          freshness,
+          utility: Number((rel * 0.85 * freshness).toFixed(2)),
+        },
+      });
+    }
+  }
+
+  for (const atom of atoms) {
+    const rel = scoreRelevance(atom.kind, atom.claim);
+    nodes.push({
+      subject,
+      predicate: atom.kind,
+      value: atom.claim,
+      tier: 'S4:prose',
+      sigil: '[§S4]',
+      provenance: {
+        ...(url ? { url } : {}),
+        source: 'prose',
+        field: `atom.${atom.kind}`,
+        verifiedInText: true,
+      },
+      confidence: {
+        extraction: 0.85,
+        corroboration: 0.7,
+        freshness,
+        utility: Number((rel * 0.7 * freshness * Math.min(2.0, atom.surprisal / 2)).toFixed(2)),
+      },
+    });
+  }
+
+  nodes.sort((a, b) => b.confidence.utility - a.confidence.utility);
+  return nodes;
+}
+
+/**
+ * Evaluates Multi-Facet Epistemic Sufficiency:
+ * checks whether every orthogonal requirement of `query` is satisfied by
+ * available evidence nodes or prose, producing an explicit `ANSWERABLE`,
+ * `PARTIAL_ESCALATE`, or `ABSTAIN` verdict.
+ */
+function analyzeEpistemicSufficiency(
+  profile: QueryProfile | undefined,
+  evidence: readonly EvidenceNode[],
+  prose: string
+): EpistemicSufficiency {
+  if (!profile || profile.facets.length === 0) {
+    const hasEvidence = evidence.length > 0 || prose.length > 20;
+    return {
+      facets: [],
+      coveredFacets: [],
+      missingFacets: [],
+      score: hasEvidence ? 1.0 : 0.0,
+      verdict: hasEvidence ? 'ANSWERABLE' : 'ABSTAIN',
+    };
+  }
+
+  const coveredFacets: string[] = [];
+  const missingFacets: string[] = [];
+  const proseLower = prose.toLowerCase();
+
+  for (const facet of profile.facets) {
+    const coveredByNode = evidence.some((n) => {
+      const predLower = n.predicate.toLowerCase();
+      const valLower = n.value.toLowerCase();
+      return (
+        facet.fields.has(predLower) ||
+        facet.terms.some((t) => predLower.includes(t) || valLower.includes(t))
+      );
+    });
+    const coveredByProse =
+      !coveredByNode && facet.terms.some((t) => proseLower.includes(t));
+
+    if (coveredByNode || coveredByProse) {
+      coveredFacets.push(facet.id);
+    } else {
+      missingFacets.push(facet.id);
+    }
+  }
+
+  const score = Number((coveredFacets.length / profile.facets.length).toFixed(2));
+  const verdict: EpistemicSufficiency['verdict'] =
+    score >= 1.0 ? 'ANSWERABLE' : score > 0 ? 'PARTIAL_ESCALATE' : 'ABSTAIN';
+
+  return {
+    facets: profile.facets.map((f) => f.id),
+    coveredFacets,
+    missingFacets,
+    score,
+    verdict,
+  };
+}
+
+/**
+ * Enforces a hard post-serialization BPE token ceiling when `tokenBudget` is
+ * explicitly requested by trimming trailing lines/characters to guarantee the
+ * serialized output respects the budget.
+ */
+function enforceHardTokenBudget(text: string, tokenBudget?: number): string {
+  if (tokenBudget === undefined || tokenBudget <= 0) return text;
+  if (estimateBpeTokens(text) <= tokenBudget) return text;
+
+  const lines = text.split('\n');
+  const kept: string[] = [];
+  let used = 0;
+
+  for (const line of lines) {
+    const lineTokens = estimateBpeTokens(line) + 1;
+    if (used + lineTokens <= tokenBudget) {
+      kept.push(line);
+      used += lineTokens;
+    } else {
+      const remainingTokens = tokenBudget - used;
+      if (remainingTokens >= 6) {
+        const charCap = Math.max(16, Math.floor(remainingTokens * 3.1));
+        kept.push(line.slice(0, charCap));
+      }
+      break;
+    }
+  }
+  return kept.join('\n');
+}
 function buildHolographicPulse(
   title: string,
   primary: JsonObject | undefined,
@@ -1166,24 +1584,29 @@ function buildHolographicPulse(
   atoms: readonly EpistemicAtom[],
   temporal: TemporalCone,
   machineTwins: readonly MachineTwin[],
-  discrepancies: readonly string[]
+  discrepancies: readonly string[],
+  provenance: readonly FieldProvenance[] = []
 ): string {
   const type = String(primary?.['type'] ?? 'Page');
   const parts: string[] = [`[L0 ${type}] ${title}`];
 
-  // Key scalar invariants from primary entity or specs
+  // Key scalar invariants from primary entity or specs with inline epistemic sigils
   const invariants: string[] = [];
+  const sigilFor = (k: string): EvidenceSigil => {
+    const p = provenance.find((pr) => pr.field === k || pr.field.startsWith(`${k}.`));
+    return p?.verifiedInText ? '[✓S1]' : '[~S2]';
+  };
   const price = scalarOf(primary?.['offers']);
-  if (price) invariants.push(`price=${price}`);
+  if (price) invariants.push(`${sigilFor('offers')}price=${price}`);
   const rating = scalarOf(primary?.['aggregateRating']);
-  if (rating) invariants.push(`rating=${rating}`);
+  if (rating) invariants.push(`${sigilFor('aggregateRating')}rating=${rating}`);
   for (const k of ['sku', 'brand', 'author', 'totalTime', 'recipeYield']) {
     const v = scalarOf(primary?.[k]);
-    if (v && invariants.length < 4) invariants.push(`${k}=${v}`);
+    if (v && invariants.length < 4) invariants.push(`${sigilFor(k)}${k}=${v}`);
   }
   for (const [k, v] of Object.entries(specs)) {
     if (invariants.length >= 4) break;
-    invariants.push(`${k}=${v}`);
+    invariants.push(`[#S3]${k}=${v}`);
   }
   if (invariants.length > 0) parts.push(invariants.join(', '));
 
@@ -1195,14 +1618,14 @@ function buildHolographicPulse(
   }
 
   if (discrepancies.length > 0) {
-    parts.push(`⚠️${discrepancies.length}_DISCREPANCY`);
+    parts.push(`[!CONFLICT:${discrepancies.length}]`);
   }
 
   if (atoms.length > 0) {
     parts.push(
       `atoms: ${atoms
         .slice(0, 2)
-        .map((a) => a.claim.slice(0, 75))
+        .map((a) => `[§S4] ${a.claim.slice(0, 70)}`)
         .join(' ; ')}`
     );
   }
@@ -1219,8 +1642,9 @@ function buildHolographicPulse(
  * `OAI-SearchBot`, Perplexity, RAG).
  *
  * Supports Holographic Multi-Resolution (`resolution: 'L0' | 'L1' | 'L2'`),
- * Submodular Information Bottleneck (`query` + `tokenBudget`), Surprisal-Distilled
- * Epistemic Atoms (`atoms`), Relativistic Temporal Light-Cone (`temporal`),
+ * Multi-Facet Submodular Epistemic Optimization (`query` + hard `tokenBudget`),
+ * Canonical Evidence Graph (`evidence`) with Inline Epistemic Sigils (`[✓S1]`, `[#S3]`, `[§S4]`),
+ * Epistemic Sufficiency Verdict (`sufficiency`), Relativistic Temporal Light-Cone (`temporal`),
  * Shadow API Autodiscovery (`machineTwins`), and Information Foraging (`frontier`).
  */
 export function toContext(source: Document | string, options: ContextOptions = {}): ContextResult {
@@ -1292,28 +1716,41 @@ export function toContext(source: Document | string, options: ContextOptions = {
   const machineTwins = discoverMachineTwins(source, canonicalOrBase);
   const frontier = extractEpistemicFrontier(source, canonicalOrBase, options.query);
 
+  const freshnessFactor = temporal.isExpiredOffer
+    ? 0.35
+    : temporal.ageDays !== undefined
+      ? Math.max(0.4, Math.exp(-temporal.ageDays / 3650))
+      : 0.95;
+
   const effectiveBudget =
     options.tokenBudget ?? (resolution === 'L1' ? 240 : undefined);
 
-  // Apply Query-Focused Information Bottleneck if `query`, `tokenBudget`, or `L1` resolution is active
+  // Apply Multi-Facet Epistemic Bottleneck if `query`, `tokenBudget`, or `L1` resolution is active
   const primary =
     fullPrimary && (queryProfile || effectiveBudget !== undefined)
       ? projectEntityForQuery(
           fullPrimary,
-          queryProfile ?? { terms: [], trigrams: new Set(), boostedFields: new Set(['type', 'name', 'headline']) },
-          effectiveBudget
+          queryProfile ?? {
+            terms: [],
+            trigrams: new Set(),
+            boostedFields: new Set(['type', 'name', 'headline']),
+            facets: [],
+          },
+          effectiveBudget,
+          provenance,
+          freshnessFactor
         )
       : fullPrimary;
 
   // Filter specs by query relevance & token ceiling when a budget or L1 resolution is active
   let specs = allSpecs;
   if (effectiveBudget !== undefined) {
-    const specCeiling = Math.max(25, Math.floor(effectiveBudget * 0.35));
+    const specCeiling = Math.max(20, Math.floor(effectiveBudget * 0.3));
     let specTokens = 0;
     const filteredSpecs: Record<string, string> = {};
     const entries = Object.entries(allSpecs);
     for (const [k, v] of entries) {
-      const cost = Math.ceil((k.length + v.length + 6) / 4);
+      const cost = estimateBpeTokens(`"${k}":"${v}",`);
       if (specTokens + cost > specCeiling) continue;
       if (queryProfile && queryProfile.terms.length > 0) {
         const feats = extractFeatures(`${k} ${v}`, queryProfile);
@@ -1329,20 +1766,37 @@ export function toContext(source: Document | string, options: ContextOptions = {
     specs = filteredSpecs;
   }
 
-  // Determine remaining token budget for prose
-  const structuredTokensUsed = Math.ceil(
-    (JSON.stringify(primary ?? {}).length + JSON.stringify(specs).length) / 4
-  );
+  // Track which query facets are already covered by structured `primary` and `specs`
+  const structuredCoveredFacets = new Set<string>();
+  if (queryProfile) {
+    const structText = `${JSON.stringify(primary ?? {})} ${JSON.stringify(specs)}`.toLowerCase();
+    for (const f of matchedFacetsFor('', structText, queryProfile)) {
+      structuredCoveredFacets.add(f);
+    }
+  }
+
+  const title =
+    (typeof primary?.['name'] === 'string' ? primary['name'] : undefined) ??
+    (typeof primary?.['headline'] === 'string' ? primary['headline'] : undefined) ??
+    scraped.meta.title ??
+    'Page Context';
+
+  // Determine remaining token budget for prose (accounting for header + JSON formatting overhead)
+  const headerOverhead = options.tokenBudget !== undefined ? 16 : 30;
+  const structuredTokensUsed =
+    estimateBpeTokens(JSON.stringify(primary ?? {})) +
+    (Object.keys(specs).length > 0 ? estimateBpeTokens(JSON.stringify(specs)) : 0) +
+    headerOverhead;
   const proseTokenCap =
     options.tokenBudget !== undefined
-      ? Math.max(25, options.tokenBudget - structuredTokensUsed)
+      ? Math.max(22, options.tokenBudget - structuredTokensUsed)
       : Math.ceil(maxProseChars / 4);
 
   const selectedSegments = queryProfile
-    ? selectSubmodularSegments(dedupedSegments, queryProfile, proseTokenCap)
+    ? selectSubmodularSegments(dedupedSegments, queryProfile, proseTokenCap, structuredCoveredFacets)
     : selectSubmodularSegments(
         dedupedSegments,
-        { terms: [], trigrams: new Set(), boostedFields: new Set() },
+        { terms: [], trigrams: new Set(), boostedFields: new Set(), facets: [] },
         proseTokenCap
       );
 
@@ -1351,11 +1805,19 @@ export function toContext(source: Document | string, options: ContextOptions = {
       ? ''
       : selectedSegments.join('\n').slice(0, maxProseChars);
 
-  const title =
-    (typeof primary?.['name'] === 'string' ? primary['name'] : undefined) ??
-    (typeof primary?.['headline'] === 'string' ? primary['headline'] : undefined) ??
-    scraped.meta.title ??
-    'Page Context';
+  const evidence = buildEvidenceGraph(
+    title,
+    fullPrimary ?? primary,
+    specs,
+    hydration,
+    atoms,
+    provenance,
+    temporal,
+    canonicalOrBase,
+    queryProfile
+  );
+
+  const sufficiency = analyzeEpistemicSufficiency(queryProfile, evidence, prose);
 
   const pulse = buildHolographicPulse(
     title,
@@ -1364,16 +1826,21 @@ export function toContext(source: Document | string, options: ContextOptions = {
     atoms,
     temporal,
     machineTwins,
-    discrepancies
+    discrepancies,
+    provenance
   );
 
   let context: string;
   if (resolution === 'L0') {
-    context = format === 'json' ? JSON.stringify({ pulse, ...(scraped.meta.canonical ? { url: scraped.meta.canonical } : {}) }) : pulse;
+    context =
+      format === 'json'
+        ? JSON.stringify({ pulse, ...(scraped.meta.canonical ? { url: scraped.meta.canonical } : {}) })
+        : pulse;
   } else if (format === 'json') {
     context = JSON.stringify({
       title,
       ...(scraped.meta.canonical ? { url: scraped.meta.canonical } : {}),
+      sufficiency,
       ...(temporal.anchorWarning ? { temporalWarning: temporal.anchorWarning } : {}),
       ...(primary ? { primary } : {}),
       ...(Object.keys(specs).length > 0 ? { specs } : {}),
@@ -1386,6 +1853,25 @@ export function toContext(source: Document | string, options: ContextOptions = {
       ...(scraped.actions.length > 0 ? { actions: scraped.actions } : {}),
       ...(prose ? { prose } : {}),
     });
+  } else if (options.tokenBudget !== undefined) {
+    // Ultra-dense Epistemic Sigil format when a strict tokenBudget is active
+    const compactLines: string[] = [`# ${title}`];
+    if (temporal.anchorWarning) compactLines.push(`⏱️ ${temporal.anchorWarning}`);
+    if (discrepancies.length > 0) compactLines.push(`[!CONFLICT] ${discrepancies[0]}`);
+    if (primary) {
+      const topSigil = provenance.some((p) => p.verifiedInText) ? '[✓S1]' : '[~S2]';
+      compactLines.push(`${topSigil} ${JSON.stringify(primary)}`);
+    }
+    if (Object.keys(specs).length > 0) {
+      compactLines.push(`[#S3] ${JSON.stringify(specs)}`);
+    }
+    if (prose) {
+      compactLines.push(`[§S4] ${prose}`);
+    }
+    if (sufficiency.missingFacets.length > 0) {
+      compactLines.push(`⚖️ ${sufficiency.verdict} (missing: ${sufficiency.missingFacets.join(', ')})`);
+    }
+    context = enforceHardTokenBudget(compactLines.join('\n'), options.tokenBudget);
   } else {
     const sections: string[] = [`# ${title}`];
     if (scraped.meta.canonical) sections.push(`URL: ${scraped.meta.canonical}`);
@@ -1393,33 +1879,39 @@ export function toContext(source: Document | string, options: ContextOptions = {
     if (temporal.anchorWarning) {
       sections.push(`⏱️ Temporal Frame: ${temporal.anchorWarning}`);
     }
-    if (discrepancies.length > 0) {
-      sections.push(`## Discrepancy Warnings\n${discrepancies.map((d) => `- ${d}`).join('\n')}`);
-    }
-    if (primary) {
+    if (queryProfile && queryProfile.facets.length > 0) {
       sections.push(
-        `## Structured Facts (${String(primary['type'] ?? 'Thing')})\n\`\`\`json\n${JSON.stringify(primary)}\n\`\`\``
+        `⚖️ Epistemic Sufficiency: ${sufficiency.verdict} (${sufficiency.coveredFacets.length}/${sufficiency.facets.length} facets${sufficiency.missingFacets.length > 0 ? `, missing: ${sufficiency.missingFacets.join(', ')}` : ''})`
       );
     }
-    if (entities.length > 1 && options.tokenBudget === undefined && resolution === 'L2') {
+    if (discrepancies.length > 0) {
+      sections.push(`## Discrepancy Warnings [!CONFLICT]\n${discrepancies.map((d) => `- ${d}`).join('\n')}`);
+    }
+    if (primary) {
+      const topSigil = provenance.some((p) => p.verifiedInText) ? '[✓S1]' : '[~S2]';
+      sections.push(
+        `## Structured Facts (${String(primary['type'] ?? 'Thing')} ${topSigil})\n\`\`\`json\n${JSON.stringify(primary)}\n\`\`\``
+      );
+    }
+    if (entities.length > 1 && resolution === 'L2') {
       const secondary = entities.filter((e) => e !== fullPrimary).slice(0, 10);
       if (secondary.length > 0) {
         sections.push(`## Additional Entities\n\`\`\`json\n${JSON.stringify(secondary)}\n\`\`\``);
       }
     }
     if (Object.keys(specs).length > 0) {
-      sections.push(`## Technical Specifications\n\`\`\`json\n${JSON.stringify(specs)}\n\`\`\``);
+      sections.push(`## Technical Specifications [#S3]\n\`\`\`json\n${JSON.stringify(specs)}\n\`\`\``);
     }
     if (resolution === 'L1' && atoms.length > 0) {
       sections.push(
-        `## Epistemic Atoms (High-Surprisal Claims)\n${atoms
-          .map((a) => `- [${a.kind}, s=${a.surprisal}] ${a.claim}`)
+        `## Epistemic Atoms (High-Surprisal Claims) [§S4]\n${atoms
+          .map((a) => `- ${a.sigil ?? '[§S4]'} [${a.kind}, s=${a.surprisal}] ${a.claim}`)
           .join('\n')}`
       );
     }
-    if (machineTwins.length > 0 && (resolution === 'L1' || options.tokenBudget === undefined)) {
+    if (machineTwins.length > 0 && (resolution === 'L1' || resolution === 'L2')) {
       sections.push(
-        `## Machine Twins & Shadow APIs\n${machineTwins
+        `## Machine Twins & Shadow APIs (Declarative Discovery)\n${machineTwins
           .map((t) => `- [${t.kind}] ${t.url} — ${t.description}`)
           .join('\n')}`
       );
@@ -1431,7 +1923,7 @@ export function toContext(source: Document | string, options: ContextOptions = {
           .join('\n')}`
       );
     }
-    if (scraped.actions.length > 0 && options.tokenBudget === undefined && resolution === 'L2') {
+    if (scraped.actions.length > 0 && resolution === 'L2') {
       sections.push(
         `## Available Site Actions\n${scraped.actions
           .map((a) => `- \`${a.name}(${a.parameters.join(', ')})\`: ${a.description}`)
@@ -1439,16 +1931,20 @@ export function toContext(source: Document | string, options: ContextOptions = {
       );
     }
     if (prose) {
-      sections.push(`## Main Content (Deduplicated)\n${prose}`);
+      sections.push(`## Main Content (Deduplicated) [§S4]\n${prose}`);
     }
     context = sections.join('\n\n');
   }
 
-  const fingerprint = simhash64(`${JSON.stringify(fullPrimary ?? {})} ${JSON.stringify(allSpecs)} ${prose || atoms.map((a) => a.claim).join(' ')}`);
+  const fingerprint = simhash64(
+    `${JSON.stringify(fullPrimary ?? {})} ${JSON.stringify(allSpecs)} ${prose || atoms.map((a) => a.claim).join(' ')}`
+  );
 
   return {
     context,
     pulse,
+    evidence,
+    sufficiency,
     ...(primary ? { primary } : {}),
     entities,
     specs,
@@ -1464,7 +1960,7 @@ export function toContext(source: Document | string, options: ContextOptions = {
     ...(visibleByline ? { visibleByline } : {}),
     prose,
     fingerprint,
-    estimatedTokens: Math.ceil(context.length / 4),
+    estimatedTokens: estimateBpeTokens(context),
     diagnostics: scraped.diagnostics,
   };
 }
@@ -1495,9 +1991,11 @@ function scalarOf(val: unknown): string | undefined {
 /**
  * Fuses multiple pages (`ContextResult`, `Document`, or HTML string) into a
  * single deduplicated multi-page context:
- * - **Same-subject pages (`mode: 'consensus'`)**: Runs Bayesian Truth Discovery
- *   weighted by `verifiedInText` provenance to compute a single `consensus`
- *   entity and isolates cross-source disagreements in `conflicts`.
+ * - **Same-subject pages (`mode: 'consensus'`)**: Runs Independence-Weighted
+ *   Truth Discovery — discounting syndicated/copied sources via SimHash cluster
+ *   detection ($1 / \sqrt{k}$), weighting by `verifiedInText` corroboration,
+ *   domain authority, and temporal freshness $T(f)$, and preserving unresolvable
+ *   contradictions in `unresolvedConflicts`.
  * - **Distinct-entity pages (`mode: 'comparison'`)**: Synthesizes a unified
  *   Markdown Comparison Matrix (`comparisonTable`) aligning all entities and
  *   their `<dl>`/`<table>` specs side-by-side.
@@ -1513,6 +2011,20 @@ export function fusePages(
       ? inp
       : toContext(inp as Document | string, options)
   );
+
+  // Compute Source Independence Discounting via pairwise SimHash similarity
+  // If two pages have near-identical prose/content (Hamming distance <= 14),
+  // they are syndicated copies rather than independent witnesses.
+  const copyClusterSizes = pages.map((p, idx) => {
+    let clusterSize = 1;
+    for (let j = 0; j < pages.length; j++) {
+      if (j === idx) continue;
+      if (hammingDistance(p.fingerprint, pages[j]!.fingerprint) <= 14) {
+        clusterSize++;
+      }
+    }
+    return clusterSize;
+  });
 
   // Determine whether pages describe the same entity or distinct entities
   const names = pages
@@ -1535,6 +2047,7 @@ export function fusePages(
         : 'comparison';
 
   const conflicts: FieldConflict[] = [];
+  const unresolvedConflicts: FieldConflict[] = [];
   let consensus: JsonObject | undefined;
   let comparisonTable: string | undefined;
 
@@ -1551,11 +2064,18 @@ export function fusePages(
       const rawKey = isSpec ? field.slice(5) : field;
       const bucket = new Map<
         string,
-        { display: string; raw: JsonValue; sources: string[]; verifiedInText: boolean; confidence: number }
+        {
+          display: string;
+          raw: JsonValue;
+          sources: string[];
+          verifiedInText: boolean;
+          confidence: number;
+          clusters: Set<string>;
+        }
       >();
 
       pages.forEach((p, idx) => {
-        const sourceId = p.meta.canonical ?? `[${idx + 1}]`;
+        const sourceId = (p as { url?: string }).url ?? p.meta.canonical ?? `[${idx + 1}]`;
         const val = isSpec ? p.specs[rawKey] : p.primary?.[rawKey];
         const scalar = scalarOf(val);
         if (!scalar || val === undefined) return;
@@ -1563,14 +2083,37 @@ export function fusePages(
         const normKey = scalar.toLowerCase().replace(/\s+/g, ' ');
         const prov = p.provenance.find((pr) => pr.field === rawKey || pr.field.startsWith(`${rawKey}.`));
         const verified = prov?.verifiedInText ?? isSpec;
-        // Bayesian weight: verified in visible text = 2.0, unverified markup = 1.0
-        const weight = verified ? 2.0 : 1.0;
+
+        // 1. Corroboration weight: verified in visible text = 2.0, unverified markup = 1.0
+        const corroborationWeight = verified ? 2.0 : 1.0;
+
+        // 2. Independence discount: syndicated copies get 1 / sqrt(clusterSize)
+        const independenceFactor = 1.0 / Math.sqrt(copyClusterSizes[idx] ?? 1);
+
+        // 3. Temporal freshness factor
+        const freshnessFactor = p.temporal.isExpiredOffer
+          ? 0.35
+          : p.temporal.ageDays !== undefined
+            ? Math.max(0.45, Math.exp(-p.temporal.ageDays / 3650))
+            : 0.95;
+
+        // 4. First-party / canonical domain authority boost
+        let authorityBoost = 1.0;
+        const brandOrName = scalarOf(p.primary?.['brand'] ?? p.primary?.['name'])?.toLowerCase();
+        if (brandOrName && sourceId.toLowerCase().includes(brandOrName.split(/\s+/)[0] ?? '')) {
+          authorityBoost = 1.35;
+        }
+
+        const weight = Number(
+          (corroborationWeight * independenceFactor * freshnessFactor * authorityBoost).toFixed(2)
+        );
 
         const existing = bucket.get(normKey);
         if (existing) {
           existing.sources.push(sourceId);
-          existing.confidence += weight;
+          existing.confidence = Number((existing.confidence + weight).toFixed(2));
           existing.verifiedInText = existing.verifiedInText || verified;
+          existing.clusters.add(p.fingerprint.slice(0, 6));
         } else {
           bucket.set(normKey, {
             display: scalar,
@@ -1578,24 +2121,40 @@ export function fusePages(
             sources: [sourceId],
             verifiedInText: verified,
             confidence: weight,
+            clusters: new Set([p.fingerprint.slice(0, 6)]),
           });
         }
       });
 
       if (bucket.size === 0) continue;
       const ranked = [...bucket.values()].sort((a, b) => b.confidence - a.confidence);
-      consensus[rawKey] = ranked[0]!.raw;
+      const top = ranked[0]!;
+      const runnerUp = ranked[1];
+
+      // A conflict is "unresolved" when the runner-up has >= 75% of the winner's confidence
+      const isUnresolved =
+        runnerUp !== undefined &&
+        rawKey !== 'type' &&
+        rawKey !== 'url' &&
+        runnerUp.confidence >= top.confidence * 0.75;
+
+      // Preserve both values when the conflict is unresolved, or take the winner
+      consensus[rawKey] = isUnresolved ? [top.raw, runnerUp.raw] : top.raw;
 
       if (ranked.length > 1 && rawKey !== 'type' && rawKey !== 'url') {
-        conflicts.push({
+        const conflictObj: FieldConflict = {
           field: rawKey,
+          unresolved: isUnresolved,
           values: ranked.map((r) => ({
             value: r.display,
             sources: r.sources,
             verifiedInText: r.verifiedInText,
             confidence: r.confidence,
+            independentClusters: r.clusters.size,
           })),
-        });
+        };
+        conflicts.push(conflictObj);
+        if (isUnresolved) unresolvedConflicts.push(conflictObj);
       }
     }
   } else {
@@ -1633,7 +2192,7 @@ export function fusePages(
   // Cross-page SimHash deduplication of prose paragraphs
   const passages: Array<{ text: string; hash: string; sources: string[] }> = [];
   pages.forEach((p, idx) => {
-    const sourceId = p.meta.canonical ?? `[${idx + 1}]`;
+    const sourceId = (p as { url?: string }).url ?? p.meta.canonical ?? `[${idx + 1}]`;
     for (const line of p.prose.split('\n')) {
       const trimmed = line.trim();
       if (trimmed.length < 20) continue;
@@ -1656,11 +2215,11 @@ export function fusePages(
           conflicts
             .map(
               (c) =>
-                `- **${c.field}**: ` +
+                `- **${c.field}** ${c.unresolved ? '[!UNRESOLVED_CONFLICT]' : '[RESOLVED]'}: ` +
                 c.values
                   .map(
                     (v) =>
-                      `"${v.value}" (${v.sources.join(', ')}, ${v.verifiedInText ? 'verified in text' : 'markup only'}, score=${v.confidence})`
+                      `"${v.value}" (${v.sources.join(', ')}, ${v.verifiedInText ? '[✓S1]' : '[~S2]'}, score=${v.confidence})`
                   )
                   .join(' vs ')
             )
@@ -1688,43 +2247,46 @@ export function fusePages(
     ...(consensus ? { consensus } : {}),
     ...(comparisonTable ? { comparisonTable } : {}),
     conflicts,
+    unresolvedConflicts,
     passages: passages.map(({ text, sources }) => ({ text, sources })),
     pages,
-    estimatedTokens: Math.ceil(context.length / 4),
+    estimatedTokens: estimateBpeTokens(context),
   };
 }
 
 // ---------------------------------------------------------------------------
-// 5. Foveated Multi-Page Wavefront Exploration (`foragePages`)
+// 5. Adaptive Foveated Multi-Page Wavefront (`foragePages`)
 // ---------------------------------------------------------------------------
 
 /**
- * Foveated Multi-Page Wavefront Exploration:
- * Mimics biological foveated vision and wave-mechanics sensing across $N$ pages:
- * 1. Computes each page's **Epistemic Resonance** with the query (combining
- *    structured schema match, epistemic atom surprisal, DOM provenance
- *    verification, and temporal freshness).
- * 2. Focuses the **Fovea** (`L1` Epistemic Core) on the top $K$ highest-resonance
- *    pages (default $K = \min(2, N)$).
- * 3. Keeps all remaining SERP pages in **Peripheral Vision** as 1-line `L0`
- *    Holographic Pulses (~35 tokens each), so the LLM maintains 100% awareness
- *    of all $N$ sources at $1/20\text{th}$ the token cost.
- * 4. Surfaces a global index of **Shadow Machine Twins** and **Epistemic Frontier**
- *    next-hop links across all pages.
+ * Adaptive Foveated Multi-Page Wavefront Exploration (`L0 -> L1 -> L2`):
+ * 1. Scans all $N$ pages at **`L0` Discovery** and scores each page's
+ *    **Epistemic Resonance** with `options.query`.
+ * 2. Promotes the top $K$ highest-resonance pages to **`L1` Evidence** (Schema +
+ *    Specs + Surprisal Atoms + Provenance + Temporal Cone).
+ * 3. Evaluates **Multi-Facet Epistemic Sufficiency (`sufficiency`)**: if any
+ *    query facet remains unresolved at `L1`, **automatically escalates** the
+ *    best candidate page(s) from **`L1` to `L2` Deep Inspection** to retrieve
+ *    the missing prose passages!
+ * 4. Keeps all remaining SERP pages in **Peripheral Vision** as 1-line `L0`
+ *    Holographic Pulses (~86 tokens mean), plus a global index of declarative
+ *    **Shadow Machine Twins** and **Epistemic Frontier** next-hop links.
  */
 export function foragePages(
   inputs: readonly (ContextResult | Document | string)[],
   options: ContextOptions & { foveaCount?: number } = {}
 ): ForagedWavefrontResult {
   const profile = options.query ? buildQueryProfile(options.query) : undefined;
-  const pages: ContextResult[] = inputs.map((inp) =>
+  const escalations: Array<{ url: string; from: 'L0' | 'L1'; to: 'L1' | 'L2'; reason: string }> = [];
+
+  const l1Pages: ContextResult[] = inputs.map((inp) =>
     typeof inp === 'object' && 'context' in inp && 'pulse' in inp
       ? inp
       : toContext(inp as Document | string, { ...options, resolution: 'L1' })
   );
 
   // Score each page by Epistemic Resonance
-  const scored = pages.map((page, idx) => {
+  const scored = l1Pages.map((page, idx) => {
     const url = (page as { url?: string }).url ?? page.meta.canonical ?? `[${idx + 1}]`;
     let resonance = 1.0;
 
@@ -1733,11 +2295,12 @@ export function foragePages(
       resonance += atom.surprisal * 1.2;
     }
 
-    // 2. Query feature match against structured data, specs, and atoms
+    // 2. Query feature & facet match against structured data, specs, and atoms
     if (profile && profile.terms.length > 0) {
       const hay = `${JSON.stringify(page.primary ?? {})} ${JSON.stringify(page.specs)} ${page.atoms.map((a) => a.claim).join(' ')}`;
       const feats = extractFeatures(hay, profile);
-      resonance += feats.size * 3.5;
+      const facets = matchedFacetsFor('', hay.toLowerCase(), profile);
+      resonance += feats.size * 3.5 + facets.length * 5.0;
     }
 
     // 3. Provenance trust bonus (verified in visible text) & discrepancy penalty
@@ -1749,8 +2312,10 @@ export function foragePages(
     if (page.temporal.isExpiredOffer) resonance -= 4.0;
 
     return {
+      idx,
       url,
       resonance: Number(Math.max(0.1, resonance).toFixed(2)),
+      resolution: 'L1' as 'L1' | 'L2',
       page,
     };
   });
@@ -1759,6 +2324,58 @@ export function foragePages(
 
   const foveaCount = options.foveaCount ?? (scored.length <= 2 ? 1 : 2);
   const fovea = scored.slice(0, foveaCount);
+  for (const f of fovea) {
+    escalations.push({
+      url: f.url,
+      from: 'L0',
+      to: 'L1',
+      reason: `High epistemic resonance (r=${f.resonance})`,
+    });
+  }
+
+  // Check aggregate epistemic sufficiency across L1 fovea; if any query facet is
+  // still missing, dynamically escalate the top foveal page(s) to L2 Deep Inspection!
+  const combinedEvidence: EvidenceNode[] = fovea.flatMap((f) => f.page.evidence);
+  let combinedProse = fovea.map((f) => f.page.prose).join('\n');
+  let sufficiency = analyzeEpistemicSufficiency(profile, combinedEvidence, combinedProse);
+
+  if (sufficiency.missingFacets.length > 0) {
+    for (const f of fovea) {
+      const rawInput = inputs[f.idx];
+      if (typeof rawInput === 'string' || (rawInput && !('context' in rawInput))) {
+        const l2Page = toContext(rawInput as Document | string, {
+          ...options,
+          resolution: 'L2',
+          tokenBudget: options.tokenBudget ? Math.floor(options.tokenBudget * 0.6) : 220,
+        });
+        if (l2Page.prose) {
+          f.page = l2Page;
+          f.resolution = 'L2';
+          escalations.push({
+            url: f.url,
+            from: 'L1',
+            to: 'L2',
+            reason: `Unresolved query facets at L1 (${sufficiency.missingFacets.join(', ')})`,
+          });
+        }
+      } else if (f.page.prose) {
+        f.resolution = 'L2';
+        escalations.push({
+          url: f.url,
+          from: 'L1',
+          to: 'L2',
+          reason: `Unresolved query facets at L1 (${sufficiency.missingFacets.join(', ')})`,
+        });
+      }
+    }
+    combinedProse = fovea.map((f) => f.page.prose).join('\n');
+    sufficiency = analyzeEpistemicSufficiency(
+      profile,
+      fovea.flatMap((f) => f.page.evidence),
+      combinedProse
+    );
+  }
+
   const periphery = scored.slice(foveaCount).map((s) => ({
     url: s.url,
     resonance: s.resonance,
@@ -1782,31 +2399,35 @@ export function foragePages(
   const frontier = [...frontierMap.values()].sort((a, b) => b.scent - a.scent).slice(0, 6);
 
   const sections: string[] = [
-    `# Foveated Wavefront (${fovea.length} foveal, ${periphery.length} peripheral L0 pulses)`,
+    `# Foveated Wavefront (${fovea.length} foveal, ${periphery.length} peripheral L0 pulses | Verdict: ${sufficiency.verdict})`,
   ];
 
   for (const f of fovea) {
     const p = f.page;
     const title =
       scalarOf(p.primary?.['name'] ?? p.primary?.['headline'] ?? p.meta.title) ?? f.url;
-    const block: string[] = [`## [FOVEA r=${f.resonance}] ${title} (${f.url})`];
+    const block: string[] = [`## [FOVEA ${f.resolution} r=${f.resonance}] ${title} (${f.url})`];
     if (p.temporal.anchorWarning) block.push(`⏱️ ${p.temporal.anchorWarning}`);
     if (p.discrepancies.length > 0) {
-      block.push(`⚠️ Discrepancies: ${p.discrepancies.join(' | ')}`);
+      block.push(`⚠️ Discrepancies [!CONFLICT]: ${p.discrepancies.join(' | ')}`);
     }
     if (p.primary) {
-      block.push(`Structured: \`${JSON.stringify(p.primary)}\``);
+      const topSigil = p.provenance.some((pr) => pr.verifiedInText) ? '[✓S1]' : '[~S2]';
+      block.push(`Structured ${topSigil}: \`${JSON.stringify(p.primary)}\``);
     }
     if (Object.keys(p.specs).length > 0) {
-      block.push(`Specs: \`${JSON.stringify(p.specs)}\``);
+      block.push(`Specs [#S3]: \`${JSON.stringify(p.specs)}\``);
     }
     if (p.atoms.length > 0) {
       block.push(
-        `Epistemic Atoms:\n${p.atoms
+        `Epistemic Atoms [§S4]:\n${p.atoms
           .slice(0, 5)
-          .map((a) => `- [${a.kind}, s=${a.surprisal}] ${a.claim}`)
+          .map((a) => `- ${a.sigil ?? '[§S4]'} [${a.kind}, s=${a.surprisal}] ${a.claim}`)
           .join('\n')}`
       );
+    }
+    if (f.resolution === 'L2' && p.prose) {
+      block.push(`Deep Evidence [L2]:\n${p.prose}`);
     }
     sections.push(block.join('\n'));
   }
@@ -1820,7 +2441,7 @@ export function foragePages(
 
   if (machineTwins.length > 0) {
     sections.push(
-      `## Discovered Shadow APIs & Machine Twins\n` +
+      `## Discovered Shadow APIs & Machine Twins (Declarative)\n` +
         machineTwins.map((t) => `- [${t.kind}] ${t.url} (${t.description})`).join('\n')
     );
   }
@@ -1835,10 +2456,17 @@ export function foragePages(
   const context = sections.join('\n\n');
   return {
     context,
-    fovea,
+    fovea: fovea.map(({ url, resonance, resolution, page }) => ({
+      url,
+      resonance,
+      resolution,
+      page,
+    })),
     periphery,
+    escalations,
+    sufficiency,
     machineTwins,
     frontier,
-    estimatedTokens: Math.ceil(context.length / 4),
+    estimatedTokens: estimateBpeTokens(context),
   };
 }

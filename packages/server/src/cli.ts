@@ -6,36 +6,46 @@ import {
   originValidationResponse,
 } from '@modelcontextprotocol/server';
 import { StdioServerTransport } from '@modelcontextprotocol/server/stdio';
-import { contextPages, createHttpHandler, createServer, forageUrls, fuseUrls, scrapePages } from './index.js';
+import {
+  contextPages,
+  createHttpHandler,
+  createLiveSearchServer,
+  createServer,
+  forageUrls,
+  fuseUrls,
+  scrapePages,
+} from './index.js';
 
 const USAGE = `
 agenticschema: serve or scrape a page's Schema.org markup
 
+  npx @agenticschema/server --live
   npx @agenticschema/server <url> [<url>...] [options]
 
 Options
+  --live              serve dynamic Live Search MCP tools (fetch_evidence, forage_urls, fuse_sources)
   --max-tools <n>     cap on generated tools (default 24)
   --no-actions        do not build executable tools from potentialAction
   --allow-host <host> extra host allowed for actions (repeatable)
   --fallback          synthesise entities & search actions from OpenGraph/meta/forms
   --json              scrape and print structured JSON to stdout instead of serving MCP
   --context           print 1-turn hybrid LLM context (structured facts + deduplicated prose)
-  --forage            foveated multi-page exploration (L1 fovea on best pages + L0 peripheral pulses)
-  --fuse              fuse multiple URLs into a Bayesian consensus or comparison matrix
-  --resolution <lvl>  holographic resolution: L0 (~35 tok pulse), L1 (epistemic atoms), L2 (full)
-  --query <q>         query-focused Submodular Information Bottleneck projection
-  --budget <tokens>   target token budget for --context / --fuse / --forage
+  --forage            adaptive foveated multi-page exploration (L0 -> L1 -> L2)
+  --fuse              fuse multiple URLs into an independence-weighted consensus or comparison matrix
+  --resolution <lvl>  holographic resolution: L0 (~86 tok pulse), L1 (~454 tok epistemic), L2 (full)
+  --query <q>         query-focused Multi-Facet Submodular Bottleneck projection
+  --budget <tokens>   hard BPE token budget for --context / --fuse / --forage
   --early-abort       stop downloading HTML after </head> once JSON-LD is found
   --http              serve over HTTP on 127.0.0.1 instead of stdio
   --port <n>          port for --http (default 3111)
   --quiet             keep diagnostics off stderr
 
-Example entry for claude_desktop_config.json:
+Example entry for claude_desktop_config.json / Cursor / Claude Code:
 
   { "mcpServers": {
-      "shop": {
+      "agenticschema-live": {
         "command": "npx",
-        "args": ["-y", "@agenticschema/server", "https://example.test/product"]
+        "args": ["-y", "@agenticschema/server", "--live"]
       } } }
 `;
 
@@ -44,6 +54,7 @@ const MAX_HTTP_BODY_BYTES = 1_048_576;
 
 interface Args {
   urls: string[];
+  live: boolean;
   maxTools?: number;
   actions: 'auto' | 'off';
   allowedHosts: string[];
@@ -64,6 +75,7 @@ interface Args {
 function parseArgs(argv: readonly string[]): Args {
   const args: Args = {
     urls: [],
+    live: false,
     actions: 'auto',
     allowedHosts: [],
     fallback: false,
@@ -79,7 +91,9 @@ function parseArgs(argv: readonly string[]): Args {
 
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i]!;
-    if (arg === '--max-tools') {
+    if (arg === '--live') {
+      args.live = true;
+    } else if (arg === '--max-tools') {
       args.maxTools = Number(argv[++i]);
     } else if (arg === '--no-actions') {
       args.actions = 'off';
@@ -123,7 +137,7 @@ function parseArgs(argv: readonly string[]): Args {
 }
 
 const args = parseArgs(process.argv.slice(2));
-if (args.urls.length === 0) {
+if (args.urls.length === 0 && !args.live) {
   process.stderr.write(USAGE);
   process.exit(1);
 }
@@ -166,69 +180,79 @@ if (args.json) {
   process.exit(0);
 }
 
-const { server, tools, diagnostics } = await createServer(args.urls, pipeline);
-
-if (!args.quiet) {
-  // Always stderr. stdout belongs to the protocol.
-  const pages = args.urls.length === 1 ? '1 page' : `${args.urls.length} pages`;
-  process.stderr.write(`agenticschema: ${tools.length} tools from ${pages}\n`);
-  for (const tool of tools) process.stderr.write(`  - ${tool.name}\n`);
-  for (const d of diagnostics) {
-    if (d.level !== 'info') process.stderr.write(`  [${d.level}] ${d.message}\n`);
+if (args.live) {
+  const { server } = createLiveSearchServer(pipeline);
+  if (!args.quiet) {
+    process.stderr.write(
+      'agenticschema: live search MCP server ready (fetch_evidence, forage_urls, fuse_sources)\n'
+    );
   }
-}
-
-if (!args.http) {
   await server.connect(new StdioServerTransport());
 } else {
-  const { createServer: createHttpServer } = await import('node:http');
-  const { Readable } = await import('node:stream');
-  const handler = await createHttpHandler(args.urls, pipeline);
+  const { server, tools, diagnostics } = await createServer(args.urls, pipeline);
 
-  createHttpServer((incoming, outgoing) => {
-    void (async () => {
-      const chunks: Buffer[] = [];
-      let totalBytes = 0;
-      for await (const chunk of incoming) {
-        const buf = chunk as Buffer;
-        totalBytes += buf.byteLength;
-        if (totalBytes > MAX_HTTP_BODY_BYTES) {
-          outgoing.writeHead(413).end('Payload Too Large');
-          incoming.destroy();
-          return;
-        }
-        chunks.push(buf);
-      }
-
-      const host = incoming.headers.host ?? `127.0.0.1:${args.port}`;
-      const request = new Request(`http://${host}${incoming.url ?? '/'}`, {
-        method: incoming.method ?? 'GET',
-        headers: Object.entries(incoming.headers).flatMap(([k, v]) =>
-          v === undefined ? [] : [[k, Array.isArray(v) ? v.join(', ') : v] as [string, string]]
-        ),
-        ...(chunks.length > 0 ? { body: Buffer.concat(chunks) } : {}),
-      });
-
-      // A local port is reachable from any page the browser happens to be on,
-      // so DNS rebinding is the live risk here rather than a theoretical one.
-      // These are the SDK's own checks for exactly this.
-      const response =
-        hostHeaderValidationResponse(request, localhostAllowedHostnames()) ??
-        originValidationResponse(request, localhostAllowedOrigins()) ??
-        (await handler.fetch(request));
-
-      outgoing.writeHead(response.status, Object.fromEntries(response.headers));
-      // Piped rather than buffered: a streamed response has to reach the
-      // client as it is produced, not once it has finished.
-      if (response.body) Readable.fromWeb(response.body as never).pipe(outgoing);
-      else outgoing.end();
-    })().catch((err: unknown) => {
-      outgoing.writeHead(500).end();
-      process.stderr.write(`agenticschema: ${String(err)}\n`);
-    });
-  }).listen(args.port, '127.0.0.1', () => {
-    if (!args.quiet) {
-      process.stderr.write(`agenticschema: listening on http://127.0.0.1:${args.port}\n`);
+  if (!args.quiet) {
+    // Always stderr. stdout belongs to the protocol.
+    const pages = args.urls.length === 1 ? '1 page' : `${args.urls.length} pages`;
+    process.stderr.write(`agenticschema: ${tools.length} tools from ${pages}\n`);
+    for (const tool of tools) process.stderr.write(`  - ${tool.name}\n`);
+    for (const d of diagnostics) {
+      if (d.level !== 'info') process.stderr.write(`  [${d.level}] ${d.message}\n`);
     }
-  });
+  }
+
+  if (!args.http) {
+    await server.connect(new StdioServerTransport());
+  } else {
+    const { createServer: createHttpServer } = await import('node:http');
+    const { Readable } = await import('node:stream');
+    const handler = await createHttpHandler(args.urls, pipeline);
+
+    createHttpServer((incoming, outgoing) => {
+      void (async () => {
+        const chunks: Buffer[] = [];
+        let totalBytes = 0;
+        for await (const chunk of incoming) {
+          const buf = chunk as Buffer;
+          totalBytes += buf.byteLength;
+          if (totalBytes > MAX_HTTP_BODY_BYTES) {
+            outgoing.writeHead(413).end('Payload Too Large');
+            incoming.destroy();
+            return;
+          }
+          chunks.push(buf);
+        }
+
+        const host = incoming.headers.host ?? `127.0.0.1:${args.port}`;
+        const request = new Request(`http://${host}${incoming.url ?? '/'}`, {
+          method: incoming.method ?? 'GET',
+          headers: Object.entries(incoming.headers).flatMap(([k, v]) =>
+            v === undefined ? [] : [[k, Array.isArray(v) ? v.join(', ') : v] as [string, string]]
+          ),
+          ...(chunks.length > 0 ? { body: Buffer.concat(chunks) } : {}),
+        });
+
+        // A local port is reachable from any page the browser happens to be on,
+        // so DNS rebinding is the live risk here rather than a theoretical one.
+        // These are the SDK's own checks for exactly this.
+        const response =
+          hostHeaderValidationResponse(request, localhostAllowedHostnames()) ??
+          originValidationResponse(request, localhostAllowedOrigins()) ??
+          (await handler.fetch(request));
+
+        outgoing.writeHead(response.status, Object.fromEntries(response.headers));
+        // Piped rather than buffered: a streamed response has to reach the
+        // client as it is produced, not once it has finished.
+        if (response.body) Readable.fromWeb(response.body as never).pipe(outgoing);
+        else outgoing.end();
+      })().catch((err: unknown) => {
+        outgoing.writeHead(500).end();
+        process.stderr.write(`agenticschema: ${String(err)}\n`);
+      });
+    }).listen(args.port, '127.0.0.1', () => {
+      if (!args.quiet) {
+        process.stderr.write(`agenticschema: listening on http://127.0.0.1:${args.port}\n`);
+      }
+    });
+  }
 }
