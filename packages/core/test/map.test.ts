@@ -1,12 +1,24 @@
 import { describe, expect, it } from 'vitest';
 import {
+  computeTemporalCone,
+  discoverMachineTwins,
   extract,
+  extractEpistemicAtoms,
+  extractEpistemicFrontier,
+  extractHydrationData,
   extractMeta,
+  extractSpecs,
+  extractZeroDomNodes,
+  foragePages,
+  fusePages,
+  hammingDistance,
   mapToTools,
   materialize,
   normalize,
   scrape,
   selectPrimary,
+  simhash64,
+  toContext,
   toSlug,
   type EntityGraph,
   type Profile,
@@ -461,6 +473,260 @@ describe('token efficiency, list_* filtering/pagination, and universal scrape()'
     });
     expect(result.actions).toHaveLength(1);
     expect(result.actions[0]!.required).toEqual(['q']);
+  });
+
+  it('toContext() builds a 1-turn hybrid context with deduplicated prose, <dl>/<table> specs, and byline/cloaking detection', () => {
+    const repeatedDescription =
+      'Questo zaino impermeabile da 50 litri è progettato per le spedizioni invernali più estreme in alta quota.';
+    const html = `<!doctype html><html><head>
+      <script type="application/ld+json">{
+        "@context": "https://schema.org",
+        "@type": "NewsArticle",
+        "headline": "Nuovo record sul K2 in invernale",
+        "author": {"@type": "Organization", "name": "Al Jazeera"},
+        "description": "${repeatedDescription}"
+      }</script>
+    </head><body>
+      <article>
+        <h1>Nuovo record sul K2 in invernale</h1>
+        <p>By AFP — La spedizione ha raggiunto la vetta alle 14:30 ora locale con venti a 60 km/h.</p>
+        <p>${repeatedDescription}</p>
+        <dl>
+          <dt>Quota vetta</dt><dd>8611 m</dd>
+          <dt>Temperatura</dt><dd>-42 °C</dd>
+        </dl>
+      </article>
+    </body></html>`;
+
+    const ctx = toContext(html, { baseUrl: 'https://news.test/k2' });
+    expect(ctx.visibleByline).toBe('AFP');
+    expect(ctx.discrepancies.some((d) => d.includes('Al Jazeera') && d.includes('AFP'))).toBe(true);
+    expect(ctx.specs['Quota vetta']).toBe('8611 m');
+    expect(ctx.specs['Temperatura']).toBe('-42 °C');
+    // The description already in JSON-LD is removed from the prose so the LLM never pays for it twice
+    expect(ctx.prose).not.toContain(repeatedDescription);
+    // Prose-only facts survive in the deduplicated main content
+    expect(ctx.prose).toContain('14:30 ora locale');
+    expect(ctx.context).toContain('## Discrepancy Warnings');
+    expect(ctx.context).toContain('## Technical Specifications');
+  });
+
+  it('extracts __NEXT_DATA__ hydration state and zero-DOM Microdata/RDFa from raw HTML strings', () => {
+    const nextHtml = `<!doctype html><html><body>
+      <script id="__NEXT_DATA__" type="application/json">${JSON.stringify({
+        props: {
+          pageProps: {
+            product: {
+              name: 'Giacca Guscio Gore-Tex',
+              price: 349.0,
+              currency: 'EUR',
+              sku: 'GTX-99',
+            },
+          },
+        },
+      })}</script>
+    </body></html>`;
+
+    const hydration = extractHydrationData(nextHtml);
+    expect(hydration).toMatchObject({
+      name: 'Giacca Guscio Gore-Tex',
+      price: 349,
+      currency: 'EUR',
+      sku: 'GTX-99',
+    });
+
+    const microdataHtml = `<div itemscope itemtype="https://schema.org/Product">
+      <span itemprop="name">Ramponi 12 Punte</span>
+      <meta itemprop="sku" content="RMP-12">
+    </div>`;
+    expect(extractZeroDomNodes(microdataHtml)).toHaveLength(1);
+    const ctx = toContext(microdataHtml);
+    expect(ctx.primary).toMatchObject({ type: 'Product', name: 'Ramponi 12 Punte', sku: 'RMP-12' });
+    expect(extractSpecs('<dl><dt>Peso</dt><dd>480 g</dd></dl>')).toEqual({ Peso: '480 g' });
+  });
+
+  it('applies Submodular Information Bottleneck (query + tokenBudget) to project only query-relevant fields and sentences', () => {
+    const html = `<!doctype html><html><head>
+      <script type="application/ld+json">{
+        "@context": "https://schema.org",
+        "@type": "Product",
+        "name": "Giacca Alpinismo 3L",
+        "sku": "GA-3L-99",
+        "color": "Blu Artico",
+        "material": "Gore-Tex Pro 3 strati",
+        "offers": {"@type": "Offer", "price": "420.00", "priceCurrency": "EUR"},
+        "aggregateRating": {"@type": "AggregateRating", "ratingValue": "4.9", "reviewCount": "88"}
+      }</script>
+    </head><body>
+      <article>
+        <p>La storia del nostro marchio inizia nel 1974 sulle Dolomiti con un piccolo laboratorio artigianale.</p>
+        <p>Tutti i nostri capi includono una garanzia a vita con riparazione gratuita in caso di rottura delle cuciture termosaldate.</p>
+        <p>Consigliamo il lavaggio a 30 gradi senza ammorbidente per preservare la membrana.</p>
+      </article>
+    </body></html>`;
+
+    const full = toContext(html);
+    const focused = toContext(html, {
+      query: 'quanto costa e come funziona la garanzia riparazione?',
+      tokenBudget: 85,
+    });
+
+    expect(focused.estimatedTokens).toBeLessThan(full.estimatedTokens);
+    // Keeps price (boosted by "costa") and the warranty sentence (matched by "garanzia riparazione")
+    expect(focused.context).toContain('420.00');
+    expect(focused.prose).toContain('garanzia a vita');
+    // Drops irrelevant history and washing paragraphs under the tight token budget
+    expect(focused.prose).not.toContain('1974 sulle Dolomiti');
+  });
+
+  it('computes 64-bit SimHash fingerprints with small Hamming distance on near-duplicate text', () => {
+    const h1 = simhash64('La spedizione invernale ha raggiunto la vetta del K2 alle 14:30 con venti forti.');
+    const h2 = simhash64('La spedizione invernale ha raggiunto la vetta del K2 alle 14:30 con vento forte.');
+    const h3 = simhash64('Ricetta della pasta alla carbonara con guanciale croccante e pecorino romano.');
+
+    expect(h1).toHaveLength(16);
+    expect(hammingDistance(h1, h2)).toBeLessThanOrEqual(10);
+    expect(hammingDistance(h1, h3)).toBeGreaterThan(15);
+  });
+
+  it('fusePages() resolves Bayesian consensus & conflicts across same-entity pages, and builds a Comparison Matrix across distinct entities', () => {
+    const sharedWireParagraph =
+      'Il dispositivo utilizza una batteria al silicio-carbonio da 6000 mAh con ricarica rapida a 100W.';
+    const page1 = `<!doctype html><html><head>
+      <link rel="canonical" href="https://store-a.test/phone">
+      <script type="application/ld+json">{"@context":"https://schema.org","@type":"Product","name":"NovaPhone X","sku":"NP-X","offers":{"@type":"Offer","price":"799.00"}}</script>
+    </head><body><p>Prezzo ufficiale 799.00 EUR disponibile subito.</p><p>${sharedWireParagraph}</p></body></html>`;
+
+    const page2 = `<!doctype html><html><head>
+      <link rel="canonical" href="https://store-b.test/phone">
+      <script type="application/ld+json">{"@context":"https://schema.org","@type":"Product","name":"NovaPhone X","sku":"NP-X","offers":{"@type":"Offer","price":"799.00"}}</script>
+    </head><body><p>In vendita a 799.00 EUR con spedizione gratuita.</p><p>${sharedWireParagraph}</p></body></html>`;
+
+    // Page 3 has an unverified/outdated price in JSON-LD (899.00)
+    const page3 = `<!doctype html><html><head>
+      <link rel="canonical" href="https://old-blog.test/phone">
+      <script type="application/ld+json">{"@context":"https://schema.org","@type":"Product","name":"NovaPhone X","sku":"NP-X","offers":{"@type":"Offer","price":"899.00"}}</script>
+    </head><body><p>Articolo di anteprima dello scorso anno.</p><p>${sharedWireParagraph}</p></body></html>`;
+
+    const consensusResult = fusePages([page1, page2, page3]);
+    expect(consensusResult.mode).toBe('consensus');
+    // 799.00 wins by Bayesian confidence (2 verified sources = 4.0 vs 1 unverified source = 1.0)
+    expect(JSON.stringify(consensusResult.consensus?.['offers'])).toContain('799.00');
+    expect(consensusResult.conflicts.some((c) => c.field === 'offers')).toBe(true);
+    // The syndicated wire paragraph appears only once across all 3 pages, citing all 3 sources
+    expect(consensusResult.passages.filter((p) => p.text.includes('6000 mAh'))).toHaveLength(1);
+    expect(consensusResult.passages.find((p) => p.text.includes('6000 mAh'))!.sources).toHaveLength(3);
+
+    // Distinct entities -> Comparison Matrix mode
+    const prodA = `<script type="application/ld+json">{"@context":"https://schema.org","@type":"Product","name":"Tenda Alpha 2","weight":"1.4 kg"}</script>`;
+    const prodB = `<script type="application/ld+json">{"@context":"https://schema.org","@type":"Product","name":"Tenda Beta 3","weight":"2.1 kg"}</script>`;
+    const matrixResult = fusePages([prodA, prodB]);
+    expect(matrixResult.mode).toBe('comparison');
+    expect(matrixResult.comparisonTable).toContain('Tenda Alpha 2');
+    expect(matrixResult.comparisonTable).toContain('Tenda Beta 3');
+    expect(matrixResult.comparisonTable).toContain('1.4 kg');
+    expect(matrixResult.comparisonTable).toContain('2.1 kg');
+  });
+
+  it('distils Surprisal-Driven Epistemic Atoms, Temporal Light-Cone, Machine Twins, and Epistemic Frontier', () => {
+    const html = `<!doctype html><html><head>
+      <link rel="canonical" href="https://shop.example.com/products/quantum-battery">
+      <link rel="alternate" type="application/json" href="https://shop.example.com/wp-json/wp/v2/posts/99">
+      <meta property="og:type" content="product">
+      <script type="application/ld+json">{
+        "@context": "https://schema.org",
+        "@type": "Product",
+        "name": "QuantumCell 5000",
+        "datePublished": "2022-03-10",
+        "offers": {
+          "@type": "Offer",
+          "price": "149.00",
+          "priceValidUntil": "2023-12-31"
+        }
+      }</script>
+    </head><body>
+      <nav><a href="/login">Sign in</a><a href="/privacy">Privacy Policy</a></nav>
+      <article>
+        <p>Furthermore, it is important to note that the cell achieves 420 Wh/kg energy density at -20°C and is not compatible with legacy NiMH chargers.</p>
+        <p>The product is currently the fastest charging pack this year in our lineup.</p>
+        <p>Read the <a href="/docs/quantumcell-datasheet.pdf">Full Technical Datasheet (PDF)</a> or inspect the <a href="https://arxiv.org/abs/2401.00001">peer-reviewed anode study</a>.</p>
+      </article>
+    </body></html>`;
+
+    const l0 = toContext(html, {
+      baseUrl: 'https://shop.example.com/products/quantum-battery',
+      resolution: 'L0',
+      referenceNow: '2026-10-25T00:00:00Z',
+    });
+
+    // 1. L0 Holographic Pulse is hyper-compact (~35 tokens) and encodes type, price, expiry warning, atoms, and twin
+    expect(l0.context).toContain('[L0 Product] QuantumCell 5000');
+    expect(l0.context).toContain('price=149.00');
+    expect(l0.context).toContain('⚠️EXPIRED_OFFER');
+    expect(l0.context).toContain('420 Wh/kg');
+    expect(l0.estimatedTokens).toBeLessThan(70);
+
+    // 2. Relativistic Temporal Cone catches expired priceValidUntil and unanchored deictics ("currently", "this year") in a 2022 doc
+    expect(l0.temporal.isExpiredOffer).toBe(true);
+    expect(l0.temporal.hasUnanchoredDeictics).toBe(true);
+    expect(l0.temporal.anchorWarning).toContain('2023-12-31');
+    expect(l0.temporal.anchorWarning).toContain('2022-03-10');
+
+    // 3. Surprisal-Driven Epistemic Atoms strip "Furthermore, it is important to note that"
+    expect(l0.atoms.length).toBeGreaterThan(0);
+    expect(l0.atoms[0]!.claim).not.toMatch(/^Furthermore/i);
+    expect(l0.atoms[0]!.claim).toContain('420 Wh/kg');
+
+    // 4. Shadow API & Machine-Twin Autodiscovery finds both WP JSON and canonical Shopify-style .json product twin
+    expect(l0.machineTwins.map((t) => t.url)).toContain(
+      'https://shop.example.com/wp-json/wp/v2/posts/99'
+    );
+    expect(l0.machineTwins.map((t) => t.url)).toContain(
+      'https://shop.example.com/products/quantum-battery.json'
+    );
+
+    // 5. Epistemic Frontier keeps the PDF datasheet & arXiv study and drops /login and /privacy
+    const frontierUrls = l0.frontier.map((f) => f.url);
+    expect(frontierUrls).toContain('https://shop.example.com/docs/quantumcell-datasheet.pdf');
+    expect(frontierUrls).toContain('https://arxiv.org/abs/2401.00001');
+    expect(frontierUrls).not.toContain('https://shop.example.com/login');
+  });
+
+  it('foragePages() builds a Foveated Multi-Page Wavefront (foveal L1 on high-resonance pages + L0 peripheral pulses on the rest)', () => {
+    const winnerPage = `<!doctype html><html><head>
+      <link rel="canonical" href="https://lab.example.com/solid-state">
+      <script type="application/ld+json">{"@context":"https://schema.org","@type":"Product","name":"SolidState Pro","offers":{"@type":"Offer","price":"299.00"}}</script>
+    </head><body>
+      <article>
+        <p>Prezzo 299.00 EUR. Garantisce 1500 cicli di ricarica completa in 12 minuti fino a -30°C.</p>
+        <a href="https://lab.example.com/specs/cycle-test.pdf">Download Cycle Test PDF</a>
+      </article>
+    </body></html>`;
+
+    const peripheralPage1 = `<!doctype html><html><head>
+      <link rel="canonical" href="https://blog.example.com/general-tips">
+      <script type="application/ld+json">{"@context":"https://schema.org","@type":"Article","headline":"How to store batteries in winter"}</script>
+    </head><body><article><p>General advice for keeping electronics warm during winter trips.</p></article></body></html>`;
+
+    const peripheralPage2 = `<!doctype html><html><head>
+      <link rel="canonical" href="https://news.example.com/market-overview">
+      <script type="application/ld+json">{"@context":"https://schema.org","@type":"Article","headline":"Battery market trends"}</script>
+    </head><body><article><p>Overview of global supply chain logistics.</p></article></body></html>`;
+
+    const wave = foragePages([peripheralPage1, winnerPage, peripheralPage2], {
+      query: 'cicli di ricarica rapida e temperatura -30°C',
+      foveaCount: 1,
+    });
+
+    expect(wave.fovea).toHaveLength(1);
+    expect(wave.fovea[0]!.url).toBe('https://lab.example.com/solid-state');
+    expect(wave.periphery).toHaveLength(2);
+    expect(wave.context).toContain('[FOVEA');
+    expect(wave.context).toContain('1500 cicli');
+    expect(wave.context).toContain('Peripheral Vision (L0 Holographic Pulses)');
+    expect(wave.frontier.map((f) => f.url)).toContain(
+      'https://lab.example.com/specs/cycle-test.pdf'
+    );
   });
 });
 

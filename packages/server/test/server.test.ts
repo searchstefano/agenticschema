@@ -7,8 +7,12 @@ import {
 } from '@modelcontextprotocol/client';
 import { InMemoryTransport } from '@modelcontextprotocol/server';
 import {
+  contextPages,
+  createAgentMiddleware,
   createServer,
   createHttpHandler,
+  fuseUrls,
+  isAiBotRequest,
   parseDocument,
   scrapePages,
 } from '../src/index.js';
@@ -443,6 +447,96 @@ describe('scrapePages and URL hardening', () => {
     await expect(createServer(['https://user:pass@negozio.test/p'])).rejects.toThrow(
       /credentials/
     );
+  });
+
+  it('serves 1-turn hybrid Markdown or JSON to ClaudeBot, OAI-SearchBot and Accept: text/markdown via createAgentMiddleware', async () => {
+    const middleware = createAgentMiddleware({ mcpEndpoint: '/api/mcp' });
+    const originResponse = () =>
+      new Response(PRODUCT_PAGE, {
+        status: 200,
+        headers: { 'content-type': 'text/html; charset=utf-8' },
+      });
+
+    // Ordinary browser request passes through untouched
+    const humanReq = new Request('https://negozio.test/prodotto', {
+      headers: {
+        accept: 'text/html,application/xhtml+xml',
+        'user-agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)',
+      },
+    });
+    expect(isAiBotRequest(humanReq)).toBe(false);
+    const humanRes = await middleware(humanReq, originResponse);
+    expect(humanRes.headers.get('content-type')).toContain('text/html');
+
+    // ClaudeBot / OAI-SearchBot gets compact 1-turn Markdown + Link header
+    const botReq = new Request('https://negozio.test/prodotto', {
+      headers: {
+        accept: '*/*',
+        'user-agent': 'Mozilla/5.0 (compatible; ClaudeBot/1.0; +claudebot@anthropic.com)',
+      },
+    });
+    expect(isAiBotRequest(botReq)).toBe(true);
+    const botRes = await middleware(botReq, originResponse);
+    expect(botRes.headers.get('content-type')).toBe('text/markdown; charset=utf-8');
+    expect(botRes.headers.get('link')).toBe('</api/mcp>; rel="mcp-server"');
+    expect(Number(botRes.headers.get('x-markdown-tokens'))).toBeGreaterThan(0);
+    const md = await botRes.text();
+    expect(md).toContain('# Zaino Trekking 45L');
+    expect(md).toContain('129.90');
+
+    // Content negotiation with Accept: application/schema+json
+    const jsonReq = new Request('https://negozio.test/prodotto', {
+      headers: { accept: 'application/schema+json' },
+    });
+    const jsonRes = await middleware(jsonReq, originResponse);
+    expect(jsonRes.headers.get('content-type')).toBe('application/schema+json; charset=utf-8');
+    const parsed = JSON.parse(await jsonRes.text()) as { title: string };
+    expect(parsed.title).toBe('Zaino Trekking 45L');
+  });
+
+  it('supports contextPages and earlyAbort streaming after </head>', async () => {
+    let chunksRead = 0;
+    let streamCancelled = false;
+    const streamFetch = (async () => {
+      const encoder = new TextEncoder();
+      const chunks = [
+        '<!doctype html><html><head><script type="application/ld+json">{"@context":"https://schema.org","@type":"Product","name":"Zaino Stream"}</script></head>',
+        '<body>' + 'x'.repeat(100_000) + '</body></html>',
+      ];
+      const stream = new ReadableStream<Uint8Array>(
+        {
+          pull(controller) {
+            if (chunksRead < chunks.length) {
+              controller.enqueue(encoder.encode(chunks[chunksRead++]!));
+            } else {
+              controller.close();
+            }
+          },
+          cancel() {
+            streamCancelled = true;
+          },
+        },
+        { highWaterMark: 0 }
+      );
+      return new Response(stream, { headers: { 'content-type': 'text/html' } });
+    }) as unknown as typeof globalThis.fetch;
+
+    const pages = await contextPages(['https://negozio.test/stream'], {
+      fetchImpl: streamFetch,
+      earlyAbort: true,
+    });
+    expect(pages).toHaveLength(1);
+    expect(pages[0]!.primary).toMatchObject({ type: 'Product', name: 'Zaino Stream' });
+    // Early abort stops reading after chunk 1 (</head>), never pulling the 100 KB body chunk
+    expect(chunksRead).toBe(1);
+    expect(streamCancelled).toBe(true);
+
+    const fused = await fuseUrls([
+      { url: 'https://negozio-a.test/p', html: PRODUCT_PAGE },
+      { url: 'https://negozio-b.test/p', html: PRODUCT_PAGE },
+    ]);
+    expect(fused.mode).toBe('consensus');
+    expect(fused.consensus).toMatchObject({ type: 'Product', name: 'Zaino Trekking 45L' });
   });
 });
 

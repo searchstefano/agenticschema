@@ -6,7 +6,7 @@ import {
   originValidationResponse,
 } from '@modelcontextprotocol/server';
 import { StdioServerTransport } from '@modelcontextprotocol/server/stdio';
-import { createHttpHandler, createServer, scrapePages } from './index.js';
+import { contextPages, createHttpHandler, createServer, forageUrls, fuseUrls, scrapePages } from './index.js';
 
 const USAGE = `
 agenticschema: serve or scrape a page's Schema.org markup
@@ -19,6 +19,13 @@ Options
   --allow-host <host> extra host allowed for actions (repeatable)
   --fallback          synthesise entities & search actions from OpenGraph/meta/forms
   --json              scrape and print structured JSON to stdout instead of serving MCP
+  --context           print 1-turn hybrid LLM context (structured facts + deduplicated prose)
+  --forage            foveated multi-page exploration (L1 fovea on best pages + L0 peripheral pulses)
+  --fuse              fuse multiple URLs into a Bayesian consensus or comparison matrix
+  --resolution <lvl>  holographic resolution: L0 (~35 tok pulse), L1 (epistemic atoms), L2 (full)
+  --query <q>         query-focused Submodular Information Bottleneck projection
+  --budget <tokens>   target token budget for --context / --fuse / --forage
+  --early-abort       stop downloading HTML after </head> once JSON-LD is found
   --http              serve over HTTP on 127.0.0.1 instead of stdio
   --port <n>          port for --http (default 3111)
   --quiet             keep diagnostics off stderr
@@ -42,6 +49,13 @@ interface Args {
   allowedHosts: string[];
   fallback: boolean;
   json: boolean;
+  context: boolean;
+  forage: boolean;
+  fuse: boolean;
+  resolution?: 'L0' | 'L1' | 'L2';
+  query?: string;
+  tokenBudget?: number;
+  earlyAbort: boolean;
   quiet: boolean;
   http: boolean;
   port: number;
@@ -54,6 +68,10 @@ function parseArgs(argv: readonly string[]): Args {
     allowedHosts: [],
     fallback: false,
     json: false,
+    context: false,
+    forage: false,
+    fuse: false,
+    earlyAbort: false,
     quiet: false,
     http: false,
     port: DEFAULT_PORT,
@@ -71,6 +89,21 @@ function parseArgs(argv: readonly string[]): Args {
       args.fallback = true;
     } else if (arg === '--json') {
       args.json = true;
+    } else if (arg === '--context') {
+      args.context = true;
+    } else if (arg === '--forage') {
+      args.forage = true;
+    } else if (arg === '--fuse') {
+      args.fuse = true;
+    } else if (arg === '--resolution') {
+      const r = (argv[++i] ?? '').toUpperCase();
+      if (r === 'L0' || r === 'L1' || r === 'L2') args.resolution = r;
+    } else if (arg === '--query') {
+      args.query = argv[++i] ?? '';
+    } else if (arg === '--budget') {
+      args.tokenBudget = Number(argv[++i]);
+    } else if (arg === '--early-abort') {
+      args.earlyAbort = true;
     } else if (arg === '--http') {
       args.http = true;
     } else if (arg === '--port') {
@@ -99,8 +132,32 @@ const pipeline = {
   actions: args.actions,
   allowedHosts: args.allowedHosts,
   ...(args.fallback ? { fallback: true } : {}),
+  ...(args.earlyAbort ? { earlyAbort: true } : {}),
+  ...(args.resolution ? { resolution: args.resolution } : {}),
+  ...(args.query ? { query: args.query } : {}),
+  ...(args.tokenBudget !== undefined && Number.isFinite(args.tokenBudget)
+    ? { tokenBudget: args.tokenBudget }
+    : {}),
   ...(args.maxTools ? { maxTools: args.maxTools } : {}),
 };
+
+if (args.forage) {
+  const wave = await forageUrls(args.urls, pipeline);
+  process.stdout.write(`${args.json ? JSON.stringify(wave, null, 2) : wave.context}\n`);
+  process.exit(0);
+}
+
+if (args.fuse) {
+  const fused = await fuseUrls(args.urls, pipeline);
+  process.stdout.write(`${args.json ? JSON.stringify(fused, null, 2) : fused.context}\n`);
+  process.exit(0);
+}
+
+if (args.context) {
+  const pages = await contextPages(args.urls, pipeline);
+  process.stdout.write(`${pages.map((p) => p.context).join('\n\n---\n\n')}\n`);
+  process.exit(0);
+}
 
 if (args.json) {
   const scraped = await scrapePages(args.urls, pipeline);

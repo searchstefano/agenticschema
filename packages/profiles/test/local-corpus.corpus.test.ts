@@ -19,7 +19,7 @@ import { fileURLToPath } from 'node:url';
 import { createRequire } from 'node:module';
 import { Window } from 'happy-dom';
 import { afterAll, describe, expect, it } from 'vitest';
-import { toTools, type ToolDescriptor } from '@agenticschema/core';
+import { toContext, toTools, type ToolDescriptor } from '@agenticschema/core';
 import { schemaOrgProfiles } from '../src/index.js';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..', '..');
@@ -113,8 +113,21 @@ interface Arm {
   textTokens: number;
   /** What the generated tools return. */
   toolTokens: number;
+  /** What `toContext` at `L1` (Epistemic Core + Surprisal Atoms) returns. */
+  l1Tokens: number;
+  /** What `toContext` with Submodular Bottleneck (`tokenBudget: 120`) returns. */
+  submodularTokens: number;
+  /** What `toContext` at `L0` (Holographic Pulse) returns. */
+  l0Tokens: number;
   toolBytes: number;
+  l1Bytes: number;
+  submodularBytes: number;
+  l0Bytes: number;
   pageBytes: number;
+  atomsCount: number;
+  twinsCount: number;
+  frontierCount: number;
+  temporalCount: number;
 }
 
 const empty = (): Arm => ({
@@ -123,8 +136,18 @@ const empty = (): Arm => ({
   rawTokens: 0,
   textTokens: 0,
   toolTokens: 0,
+  l1Tokens: 0,
+  submodularTokens: 0,
+  l0Tokens: 0,
   toolBytes: 0,
+  l1Bytes: 0,
+  submodularBytes: 0,
+  l0Bytes: 0,
   pageBytes: 0,
+  atomsCount: 0,
+  twinsCount: 0,
+  frontierCount: 0,
+  temporalCount: 0,
 });
 
 const totals = { ...empty(), tools: 0, byVertical: new Map<string, Arm>() };
@@ -216,6 +239,21 @@ describe.skipIf(corpus.length === 0)('corpus reale', () => {
         // end, so a failure names the page that opened the route.
         expect(leaked).toEqual([]);
 
+        // Measure AI-Native Live Search representations (`toContext` L1, Submodular, L0)
+        // on the raw HTML string before stripping scripts from `doc`.
+        const ctxL1 = toContext(html, {
+          ...schemaOrgProfiles,
+          baseUrl: page.url,
+          resolution: 'L1',
+        });
+        const ctxSubmodular = toContext(html, {
+          ...schemaOrgProfiles,
+          baseUrl: page.url,
+          query: 'price weight rating author date ingredients overview',
+          tokenBudget: 120,
+        });
+        const l0Text = ctxL1.pulse;
+
         // The scraper baseline, taken only now: stripping the scripts earlier
         // would have thrown away the JSON-LD the pipeline just read.
         for (const el of [...doc.querySelectorAll('script, style, noscript, template')]) {
@@ -223,14 +261,27 @@ describe.skipIf(corpus.length === 0)('corpus reale', () => {
         }
         const text = (doc.body?.textContent ?? '').replace(/\s+/g, ' ').trim();
 
-        const measured = {
+        const measured: Arm = {
           pages: 1,
           withTools: result.tools.length > 0 ? 1 : 0,
           rawTokens: tokens(html),
           textTokens: tokens(text),
           toolTokens: tokens(toolText),
+          l1Tokens: tokens(ctxL1.context),
+          submodularTokens: tokens(ctxSubmodular.context),
+          l0Tokens: tokens(l0Text),
           toolBytes,
+          l1Bytes: Buffer.byteLength(ctxL1.context, 'utf8'),
+          submodularBytes: Buffer.byteLength(ctxSubmodular.context, 'utf8'),
+          l0Bytes: Buffer.byteLength(l0Text, 'utf8'),
           pageBytes: page.bytes,
+          atomsCount: ctxL1.atoms.length,
+          twinsCount: ctxL1.machineTwins.length,
+          frontierCount: ctxL1.frontier.length,
+          temporalCount:
+            ctxL1.temporal.publishedAt || ctxL1.temporal.modifiedAt || ctxL1.temporal.validThrough
+              ? 1
+              : 0,
         };
 
         totals.tools += result.tools.length;
@@ -292,18 +343,46 @@ describe.skipIf(corpus.length === 0)('corpus reale', () => {
         `${times(totals.rawTokens, totals.textTokens).padStart(12)}${'—'.padStart(11)}`
     );
     out(
-      `  agenticschema                ${per(totals.toolTokens).padStart(9)}` +
+      `  agenticschema (MCP tools)    ${per(totals.toolTokens).padStart(9)}` +
         `${times(totals.rawTokens, totals.toolTokens).padStart(12)}` +
         `${times(totals.textTokens, totals.toolTokens).padStart(11)}`
     );
+    out(
+      `  toContext L1 (epistemic)     ${per(totals.l1Tokens).padStart(9)}` +
+        `${times(totals.rawTokens, totals.l1Tokens).padStart(12)}` +
+        `${times(totals.textTokens, totals.l1Tokens).padStart(11)}`
+    );
+    out(
+      `  toContext (submodular b=120) ${per(totals.submodularTokens).padStart(9)}` +
+        `${times(totals.rawTokens, totals.submodularTokens).padStart(12)}` +
+        `${times(totals.textTokens, totals.submodularTokens).padStart(11)}`
+    );
+    out(
+      `  toContext L0 (pulse)         ${per(totals.l0Tokens).padStart(9)}` +
+        `${times(totals.rawTokens, totals.l0Tokens).padStart(12)}` +
+        `${times(totals.textTokens, totals.l0Tokens).padStart(11)}`
+    );
     out(line);
-    out('PER VERTICAL              pages       raw      text   agentic    vs text');
+    out(
+      `AI-NATIVE DISCOVERIES ACROSS ${totals.pages} PAGES: ` +
+        `atoms=${totals.atomsCount}, machineTwins=${totals.twinsCount}, ` +
+        `frontierHops=${totals.frontierCount}, temporalAnchored=${totals.temporalCount}/${totals.pages}`
+    );
+    out(
+      `MEAN PAYLOAD BYTES: tools=${(totals.toolBytes / 1024 / totals.pages).toFixed(1)} KB, ` +
+        `L1=${(totals.l1Bytes / 1024 / totals.pages).toFixed(1)} KB, ` +
+        `submodular=${(totals.submodularBytes / 1024 / totals.pages).toFixed(1)} KB, ` +
+        `L0=${Math.round(totals.l0Bytes / totals.pages)} B`
+    );
+    out(line);
+    out('PER VERTICAL          pages      raw     text    tools       L1   submod       L0');
     for (const [vertical, b] of [...totals.byVertical].sort()) {
       const avg = (n: number) => Math.round(n / b.pages).toLocaleString('en-US');
       out(
-        `  ${vertical.padEnd(20)} ${String(b.pages).padStart(6)} ` +
-          `${avg(b.rawTokens).padStart(9)}${avg(b.textTokens).padStart(9)}` +
-          `${avg(b.toolTokens).padStart(10)}${times(b.textTokens, b.toolTokens).padStart(10)}`
+        `  ${vertical.padEnd(18)} ${String(b.pages).padStart(6)} ` +
+          `${avg(b.rawTokens).padStart(8)}${avg(b.textTokens).padStart(9)}` +
+          `${avg(b.toolTokens).padStart(9)}${avg(b.l1Tokens).padStart(9)}` +
+          `${avg(b.submodularTokens).padStart(9)}${avg(b.l0Tokens).padStart(9)}`
       );
     }
     out(line);

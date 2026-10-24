@@ -24,4 +24,28 @@ export {
 } from './map/index.js';
 export { mapActions, type ActionOptions, type ActionResult } from './map/actions.js';
 export { guardTools, sanitizeText, type GuardOptions } from './guard/index.js';
+export {
+  toContext,
+  fusePages,
+  foragePages,
+  simhash64,
+  hammingDistance,
+  extractSpecs,
+  extractHydrationData,
+  extractZeroDomNodes,
+  extractEpistemicAtoms,
+  computeTemporalCone,
+  discoverMachineTwins,
+  extractEpistemicFrontier,
+  type ContextOptions,
+  type ContextResult,
+  type FusedContextResult,
+  type ForagedWavefrontResult,
+  type FieldConflict,
+  type FieldProvenance,
+  type EpistemicAtom,
+  type TemporalCone,
+  type MachineTwin,
+  type FrontierLink,
+} from './context/index.js';
 export * from './types.js';

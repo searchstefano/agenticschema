@@ -7,12 +7,19 @@ import {
 import { AjvJsonSchemaValidator } from '@modelcontextprotocol/server/validators/ajv';
 import { parseHTML } from 'linkedom';
 import {
+  foragePages,
+  fusePages,
   materialize,
   needsDocument,
   scrape,
+  toContext,
   toTools,
   toSlug,
+  type ContextOptions,
+  type ContextResult,
   type Diagnostic,
+  type ForagedWavefrontResult,
+  type FusedContextResult,
   type PipelineOptions,
   type ScrapeResult,
   type ToolDescriptor,
@@ -36,6 +43,14 @@ export interface CreateServerOptions extends PipelineOptions {
    * makes clients refetch a list that cannot have changed. `0` restores it.
    */
   cacheTtlMs?: number;
+  /**
+   * Abort the HTTP stream as soon as `</head>` closes if at least one JSON-LD
+   * block has already been received inside `<head>`. Saves up to 90% of
+   * network bandwidth on large pages when only structured facts are needed.
+   */
+  earlyAbort?: boolean;
+  /** Maximum HTML response size in bytes before aborting. Defaults to 5 MB. */
+  maxHtmlBytes?: number;
 }
 
 /** Long enough to stop the per-call refetch, short enough that a restarted server is picked up soon. */
@@ -90,7 +105,7 @@ export async function createServer(
       const page = typeof s === 'string' ? { url: s } : s;
       return {
         url: page.url,
-        html: page.html ?? (await fetchHtml(page.url, options.fetchImpl, options.timeoutMs)),
+        html: page.html ?? (await fetchHtml(page.url, options)),
       };
     })
   );
@@ -189,7 +204,7 @@ export async function createHttpHandler(
       const page = typeof source === 'string' ? { url: source } : source;
       return {
         url: page.url,
-        html: page.html ?? (await fetchHtml(page.url, options.fetchImpl, options.timeoutMs)),
+        html: page.html ?? (await fetchHtml(page.url, options)),
       };
     })
   );
@@ -197,6 +212,7 @@ export async function createHttpHandler(
 }
 
 const DEFAULT_TIMEOUT_MS = 15_000;
+const DEFAULT_MAX_HTML_BYTES = 5_242_880; // 5 MB
 
 export interface ScrapedPage extends Omit<ScrapeResult, 'tools' | 'graph'> {
   url: string;
@@ -206,6 +222,10 @@ export interface ScrapedPage extends Omit<ScrapeResult, 'tools' | 'graph'> {
     kind: 'read' | 'action' | 'custom';
     entityType?: string;
   }>;
+}
+
+export interface ContextPage extends ContextResult {
+  url: string;
 }
 
 /**
@@ -220,7 +240,7 @@ export async function scrapePages(
   return Promise.all(
     sources.map(async (s) => {
       const page = typeof s === 'string' ? { url: s } : s;
-      const html = page.html ?? (await fetchHtml(page.url, options.fetchImpl, options.timeoutMs));
+      const html = page.html ?? (await fetchHtml(page.url, options));
       const source = needsDocument(html, options) ? parseDocument(html) : html;
       const result = scrape(source, {
         ...schemaOrgProfiles,
@@ -245,11 +265,156 @@ export async function scrapePages(
   );
 }
 
-async function fetchHtml(
-  url: string,
-  fetchImpl?: typeof globalThis.fetch,
-  timeoutMs = DEFAULT_TIMEOUT_MS
-): Promise<string> {
+/**
+ * Generates Zero-Turn Hybrid Contexts (`toContext`) for one or more pages
+ * concurrently — combining normalized Schema.org/OpenGraph facts, `<dl>`/`<table>`
+ * specs, SSR hydration state, anti-cloaking/byline verification, and deduplicated
+ * body prose in a single pass.
+ */
+export async function contextPages(
+  sources: readonly (PageSource | string)[],
+  options: CreateServerOptions & ContextOptions = {}
+): Promise<ContextPage[]> {
+  return Promise.all(
+    sources.map(async (s) => {
+      const page = typeof s === 'string' ? { url: s } : s;
+      const html = page.html ?? (await fetchHtml(page.url, options));
+      const source = needsDocument(html, options) ? parseDocument(html) : html;
+      const result = toContext(source, {
+        ...schemaOrgProfiles,
+        ...options,
+        baseUrl: page.url,
+      });
+      return {
+        url: page.url,
+        ...result,
+      };
+    })
+  );
+}
+
+/**
+ * Fetches multiple pages concurrently and fuses them into a single multi-page
+ * knowledge graph (`fusePages`) — performing Bayesian Truth Discovery when
+ * pages describe the same entity, or synthesizing a Markdown Comparison Matrix
+ * when pages describe distinct entities, plus cross-page SimHash prose deduplication.
+ */
+export async function fuseUrls(
+  sources: readonly (PageSource | string)[],
+  options: CreateServerOptions & ContextOptions & { mode?: 'auto' | 'consensus' | 'comparison' } = {}
+): Promise<FusedContextResult> {
+  const pages = await contextPages(sources, options);
+  return fusePages(pages, options);
+}
+
+/**
+ * Foveated Multi-Page Wavefront Exploration (`foragePages`) across multiple URLs:
+ * fetches all URLs concurrently, scores each page's Epistemic Resonance with
+ * `options.query`, focuses foveal depth (`L1`) on the top winning pages, and
+ * keeps peripheral pages as ~35-token `L0` Holographic Pulses while surfacing
+ * discovered Shadow APIs (`machineTwins`) and high-scent next hops (`frontier`).
+ */
+export async function forageUrls(
+  sources: readonly (PageSource | string)[],
+  options: CreateServerOptions & ContextOptions & { foveaCount?: number } = {}
+): Promise<ForagedWavefrontResult> {
+  const pages = await contextPages(sources, { ...options, resolution: 'L1' });
+  return foragePages(pages, options);
+}
+
+const AI_BOT_UA =
+  /\b(ClaudeBot|Claude-Web|Anthropic-AI|OAI-SearchBot|ChatGPT-User|GPTBot|PerplexityBot|Google-Extended|CCBot|Applebot-Extended)\b/i;
+
+/**
+ * Returns true if the incoming HTTP `Request` is from a known AI search/scraping
+ * bot or explicitly negotiates `text/markdown`, `application/schema+json`, or
+ * `application/mcp+json`.
+ */
+export function isAiBotRequest(request: Request): boolean {
+  const accept = request.headers.get('accept') ?? '';
+  if (
+    accept.includes('text/markdown') ||
+    accept.includes('application/schema+json') ||
+    accept.includes('application/mcp+json')
+  ) {
+    return true;
+  }
+  const ua = request.headers.get('user-agent') ?? '';
+  return AI_BOT_UA.test(ua);
+}
+
+export interface AgentMiddlewareOptions extends ContextOptions {
+  /** Optional MCP endpoint URL advertised in the `Link` response header. Defaults to `'/mcp'`. */
+  mcpEndpoint?: string;
+}
+
+/**
+ * Edge & server middleware for Cloudflare Workers, Next.js, Remix, Hono, or Node:
+ * intercepts HTML responses destined for AI search bots (`ClaudeBot`, `OAI-SearchBot`,
+ * `PerplexityBot`) or `Accept: text/markdown` / `application/schema+json` clients
+ * and transforms them on the fly into a compact 1-turn `toContext()` payload.
+ */
+export function createAgentMiddleware(options: AgentMiddlewareOptions = {}) {
+  const mcpEndpoint = options.mcpEndpoint ?? '/mcp';
+  return async (
+    request: Request,
+    next: () => Promise<Response> | Response
+  ): Promise<Response> => {
+    const response = await next();
+    if (!isAiBotRequest(request)) return response;
+
+    const contentType = response.headers.get('content-type') ?? '';
+    if (!contentType.toLowerCase().includes('text/html')) return response;
+
+    const html = await response.text();
+    const accept = request.headers.get('accept') ?? '';
+    const wantsJson =
+      accept.includes('application/schema+json') || accept.includes('application/mcp+json');
+
+    const source = needsDocument(html, options) ? parseDocument(html) : html;
+    const reqQuery = request.headers.get('x-search-query') ?? options.query;
+    const reqBudgetRaw = request.headers.get('x-token-budget');
+    const reqBudget =
+      reqBudgetRaw && Number.isFinite(Number(reqBudgetRaw))
+        ? Number(reqBudgetRaw)
+        : options.tokenBudget;
+    const reqResRaw = request.headers.get('x-resolution')?.toUpperCase();
+    const reqResolution =
+      reqResRaw === 'L0' || reqResRaw === 'L1' || reqResRaw === 'L2'
+        ? reqResRaw
+        : options.resolution;
+
+    const ctx = toContext(source, {
+      ...schemaOrgProfiles,
+      ...options,
+      ...(reqQuery ? { query: reqQuery } : {}),
+      ...(reqBudget !== undefined ? { tokenBudget: reqBudget } : {}),
+      ...(reqResolution ? { resolution: reqResolution } : {}),
+      baseUrl: request.url,
+      format: wantsJson ? 'json' : 'markdown',
+    });
+
+    const headers = new Headers(response.headers);
+    headers.set(
+      'content-type',
+      wantsJson ? 'application/schema+json; charset=utf-8' : 'text/markdown; charset=utf-8'
+    );
+    headers.set('vary', 'Accept, User-Agent, X-Search-Query, X-Token-Budget, X-Resolution');
+    headers.set('link', `<${mcpEndpoint}>; rel="mcp-server"`);
+    headers.set('x-markdown-tokens', String(ctx.estimatedTokens));
+    headers.set('x-semantic-fingerprint', ctx.fingerprint);
+    headers.set('x-holographic-pulse', ctx.pulse.slice(0, 240));
+    headers.delete('content-length');
+    headers.delete('content-encoding');
+
+    return new Response(ctx.context, {
+      status: response.status,
+      headers,
+    });
+  };
+}
+
+async function fetchHtml(url: string, options: CreateServerOptions = {}): Promise<string> {
   let parsed: URL;
   try {
     parsed = new URL(url);
@@ -263,15 +428,55 @@ async function fetchHtml(
     throw new Error(`${url}: credentials in URL are not allowed`);
   }
 
-  const doFetch = fetchImpl ?? globalThis.fetch;
+  const doFetch = options.fetchImpl ?? globalThis.fetch;
+  const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
+  const maxBytes = options.maxHtmlBytes ?? DEFAULT_MAX_HTML_BYTES;
+  const controller = new AbortController();
+  const signal = AbortSignal.any([controller.signal, AbortSignal.timeout(timeoutMs)]);
+
   // A page that never answers would otherwise block startup, and over stdio the
   // agent just hangs with nothing to show for it.
   const response = await doFetch(url, {
     headers: { accept: 'text/html,application/xhtml+xml', 'user-agent': 'agenticschema' },
-    signal: AbortSignal.timeout(timeoutMs),
+    signal,
   });
   if (!response.ok) throw new Error(`${url}: HTTP ${response.status}`);
-  return response.text();
+
+  if (!response.body || (!options.earlyAbort && options.maxHtmlBytes === undefined)) {
+    return response.text();
+  }
+
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let html = '';
+  let bytesRead = 0;
+
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      bytesRead += value.byteLength;
+      if (bytesRead > maxBytes) {
+        controller.abort();
+        await reader.cancel().catch(() => {});
+        break;
+      }
+      html += decoder.decode(value, { stream: true });
+      if (
+        options.earlyAbort &&
+        /<\/head\s*>/i.test(html) &&
+        /<script\b[^>]*ld\+json[^>]*>[\s\S]*?<\/script\s*>/i.test(html)
+      ) {
+        controller.abort();
+        await reader.cancel().catch(() => {});
+        break;
+      }
+    }
+    html += decoder.decode();
+  } catch (err) {
+    if (!html) throw err;
+  }
+  return html;
 }
 
 /**
