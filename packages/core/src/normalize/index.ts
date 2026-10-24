@@ -1,3 +1,4 @@
+import { isSafeKey } from '../extract/index.js';
 import type {
   Diagnostic,
   Entity,
@@ -57,7 +58,8 @@ export function normalize(nodes: RawNode[], options: NormalizeOptions = {}): Ent
     }
     existing.types = [...new Set([...existing.types, ...entity.types])];
     for (const [key, values] of Object.entries(entity.props)) {
-      const current = existing.props[key];
+      if (!isSafeKey(key)) continue;
+      const current = Object.hasOwn(existing.props, key) ? existing.props[key] : undefined;
       existing.props[key] = current ? dedupe([...current, ...values]) : values;
     }
   }
@@ -73,12 +75,12 @@ export function normalize(nodes: RawNode[], options: NormalizeOptions = {}): Ent
     }
 
     // `@value` collapses to a plain value. The language tag is of no use to a tool.
-    if ('@value' in data) {
+    if (Object.hasOwn(data, '@value')) {
       const v = data['@value'];
       return typeof v === 'string' || typeof v === 'number' || typeof v === 'boolean' ? v : undefined;
     }
 
-    const rawId = data['@id'];
+    const rawId = Object.hasOwn(data, '@id') ? data['@id'] : undefined;
     const id = typeof rawId === 'string' ? resolveId(rawId) : nextBlankId();
 
     // A bare reference: `{ "@id": "..." }` and nothing else.
@@ -92,10 +94,15 @@ export function normalize(nodes: RawNode[], options: NormalizeOptions = {}): Ent
 
     for (const [key, value] of Object.entries(data)) {
       if (key.startsWith('@')) continue;
+      const propKey = stripPrefix(key);
+      if (!isSafeKey(propKey)) continue;
       const values = (Array.isArray(value) ? value : [value])
         .map((item) => toPropertyValue(item, format, depth))
         .filter((v): v is PropertyValue => v !== undefined);
-      if (values.length) entity.props[stripPrefix(key)] = values;
+      if (values.length) {
+        const prev = Object.hasOwn(entity.props, propKey) ? entity.props[propKey] : undefined;
+        entity.props[propKey] = prev ? dedupe([...prev, ...values]) : values;
+      }
     }
 
     upsert(entity);

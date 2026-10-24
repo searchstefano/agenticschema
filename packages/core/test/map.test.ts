@@ -1,9 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import {
   extract,
+  extractMeta,
   mapToTools,
   materialize,
   normalize,
+  scrape,
   selectPrimary,
   toSlug,
   type EntityGraph,
@@ -387,3 +389,78 @@ describe('from, following a path', () => {
     expect(await run(offer!)).toMatchObject({ price: 129.9, priceCurrency: 'EUR' });
   });
 });
+
+// ---------------------------------------------------------------------------
+
+describe('token efficiency, list_* filtering/pagination, and universal scrape()', () => {
+  it('supports query, limit and offset on list_* group tools', async () => {
+    const many = [
+      '{"@type":"Product","name":"Scarpa Corsa"}',
+      '{"@type":"Product","name":"Zaino Montagna 30L"}',
+      '{"@type":"Product","name":"Zaino Trekking 45L"}',
+      '{"@type":"Product","name":"Tenda Bivacco"}',
+      '{"@type":"Product","name":"Zaino Urbano 20L"}',
+    ].join(',');
+    const graph = graphOf(`{"@context":"https://schema.org","@graph":[${many}]}`);
+    const { tools } = mapToTools(graph, { profiles: [productProfile] });
+    const listTool = tools.find((t) => t.name === 'list_product')!;
+
+    const filtered = JSON.parse(
+      (await listTool.execute({ query: 'zaino', limit: 2, offset: 0 })).content[0]!.text
+    ) as Array<{ name: string }>;
+    expect(filtered).toHaveLength(2);
+    expect(filtered.every((item) => item.name.toLowerCase().includes('zaino'))).toBe(true);
+
+    const paged = JSON.parse(
+      (await listTool.execute({ query: 'zaino', limit: 2, offset: 2 })).content[0]!.text
+    ) as Array<{ name: string }>;
+    expect(paged).toHaveLength(1);
+    expect(paged[0]!.name).toBe('Zaino Urbano 20L');
+  });
+
+  it('marks transitively materialized child entities as consumed so they do not spawn duplicate tools', () => {
+    const graph = graphOf(
+      '{"@context":"https://schema.org","@graph":[' +
+        '{"@type":"Recipe","@id":"#r","name":"Carbonara","author":{"@id":"#p"},"image":{"@id":"#img"}},' +
+        '{"@type":"Person","@id":"#p","name":"Marco"},' +
+        '{"@type":"ImageObject","@id":"#img","url":"https://esempio.test/c.jpg"}]}'
+    );
+    const { tools } = mapToTools(graph, {});
+    expect(tools.map((t) => t.name)).toEqual(['get_recipe']);
+  });
+
+  it('matches profiles case-insensitively when @type has lowercase initial', () => {
+    const graph = graphOf('{"@type":"product","name":"Zaino","sku":"Z1"}');
+    const { tools } = mapToTools(graph, { profiles: [productProfile] });
+    expect(tools.map((t) => t.name)).toEqual(['get_product']);
+  });
+
+  it('synthesizes structured entities and SearchAction from OpenGraph, meta tags, and search forms when fallback: true', () => {
+    const html = `<!doctype html><html lang="it"><head>
+      <title>Zaino Alpinismo Pro</title>
+      <link rel="canonical" href="https://negozio.test/zaino-pro">
+      <meta property="og:type" content="product">
+      <meta property="og:title" content="Zaino Alpinismo Pro 50L">
+      <meta property="og:description" content="Impermeabile e ultraleggero.">
+      <meta property="product:price:amount" content="189.00">
+      <meta property="product:price:currency" content="EUR">
+    </head><body>
+      <form action="/ricerca" method="get">
+        <input type="search" name="q">
+      </form>
+    </body></html>`;
+
+    const meta = extractMeta(html);
+    expect(meta.title).toBe('Zaino Alpinismo Pro 50L');
+    expect(meta.openGraph['og:type']).toBe('product');
+
+    const result = scrape(html, { baseUrl: 'https://negozio.test/zaino-pro', fallback: true });
+    expect(result.primary).toMatchObject({
+      type: 'Product',
+      name: 'Zaino Alpinismo Pro 50L',
+    });
+    expect(result.actions).toHaveLength(1);
+    expect(result.actions[0]!.required).toEqual(['q']);
+  });
+});
+

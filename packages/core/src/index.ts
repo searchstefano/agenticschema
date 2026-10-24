@@ -1,6 +1,15 @@
-export { toTools, defineTool, type PipelineOptions, type PipelineResult, type CustomTool } from './pipeline.js';
+export {
+  toTools,
+  scrape,
+  defineTool,
+  type PipelineOptions,
+  type PipelineResult,
+  type ScrapeResult,
+  type ScrapeActionSummary,
+  type CustomTool,
+} from './pipeline.js';
 
-export { extract, needsDocument, type ExtractOptions } from './extract/index.js';
+export { extract, extractMeta, needsDocument, type ExtractOptions, type PageMeta } from './extract/index.js';
 export { normalize, type NormalizeOptions } from './normalize/index.js';
 export { selectPrimary, BOILERPLATE_TYPES } from './select/primary.js';
 export {

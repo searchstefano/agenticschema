@@ -6,10 +6,10 @@ import {
   originValidationResponse,
 } from '@modelcontextprotocol/server';
 import { StdioServerTransport } from '@modelcontextprotocol/server/stdio';
-import { createHttpHandler, createServer } from './index.js';
+import { createHttpHandler, createServer, scrapePages } from './index.js';
 
 const USAGE = `
-agenticschema: serve a page's Schema.org markup as an MCP server
+agenticschema: serve or scrape a page's Schema.org markup
 
   npx @agenticschema/server <url> [<url>...] [options]
 
@@ -17,6 +17,8 @@ Options
   --max-tools <n>     cap on generated tools (default 24)
   --no-actions        do not build executable tools from potentialAction
   --allow-host <host> extra host allowed for actions (repeatable)
+  --fallback          synthesise entities & search actions from OpenGraph/meta/forms
+  --json              scrape and print structured JSON to stdout instead of serving MCP
   --http              serve over HTTP on 127.0.0.1 instead of stdio
   --port <n>          port for --http (default 3111)
   --quiet             keep diagnostics off stderr
@@ -31,12 +33,15 @@ Example entry for claude_desktop_config.json:
 `;
 
 const DEFAULT_PORT = 3111;
+const MAX_HTTP_BODY_BYTES = 1_048_576;
 
 interface Args {
   urls: string[];
   maxTools?: number;
   actions: 'auto' | 'off';
   allowedHosts: string[];
+  fallback: boolean;
+  json: boolean;
   quiet: boolean;
   http: boolean;
   port: number;
@@ -47,6 +52,8 @@ function parseArgs(argv: readonly string[]): Args {
     urls: [],
     actions: 'auto',
     allowedHosts: [],
+    fallback: false,
+    json: false,
     quiet: false,
     http: false,
     port: DEFAULT_PORT,
@@ -60,6 +67,10 @@ function parseArgs(argv: readonly string[]): Args {
       args.actions = 'off';
     } else if (arg === '--allow-host') {
       args.allowedHosts.push(argv[++i] ?? '');
+    } else if (arg === '--fallback') {
+      args.fallback = true;
+    } else if (arg === '--json') {
+      args.json = true;
     } else if (arg === '--http') {
       args.http = true;
     } else if (arg === '--port') {
@@ -87,8 +98,16 @@ if (args.urls.length === 0) {
 const pipeline = {
   actions: args.actions,
   allowedHosts: args.allowedHosts,
+  ...(args.fallback ? { fallback: true } : {}),
   ...(args.maxTools ? { maxTools: args.maxTools } : {}),
 };
+
+if (args.json) {
+  const scraped = await scrapePages(args.urls, pipeline);
+  const output = scraped.length === 1 ? scraped[0] : scraped;
+  process.stdout.write(`${JSON.stringify(output, null, 2)}\n`);
+  process.exit(0);
+}
 
 const { server, tools, diagnostics } = await createServer(args.urls, pipeline);
 
@@ -112,7 +131,17 @@ if (!args.http) {
   createHttpServer((incoming, outgoing) => {
     void (async () => {
       const chunks: Buffer[] = [];
-      for await (const chunk of incoming) chunks.push(chunk as Buffer);
+      let totalBytes = 0;
+      for await (const chunk of incoming) {
+        const buf = chunk as Buffer;
+        totalBytes += buf.byteLength;
+        if (totalBytes > MAX_HTTP_BODY_BYTES) {
+          outgoing.writeHead(413).end('Payload Too Large');
+          incoming.destroy();
+          return;
+        }
+        chunks.push(buf);
+      }
 
       const host = incoming.headers.host ?? `127.0.0.1:${args.port}`;
       const request = new Request(`http://${host}${incoming.url ?? '/'}`, {

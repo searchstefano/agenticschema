@@ -6,6 +6,12 @@ import {
   type ToolDescriptor,
 } from '@agenticschema/core';
 
+export interface WebMcpAnnotations {
+  readOnlyHint?: true;
+  untrustedContentHint?: true;
+  consequentialHint?: true;
+}
+
 /**
  * The slice of WebMCP this adapter needs.
  *
@@ -19,12 +25,29 @@ interface ModelContext {
       name: string;
       description: string;
       inputSchema: unknown;
+      annotations?: WebMcpAnnotations;
       // Two arguments since Chrome 153: the input, and a per-execution context
       // whose signal fires when the user or the agent cancels the call.
       execute: (args: Record<string, unknown>, context?: { signal?: AbortSignal }) => unknown;
     },
-    options?: { signal?: AbortSignal }
+    options?: { signal?: AbortSignal; exposedTo?: readonly string[] }
   ): Promise<void>;
+}
+
+/**
+ * WebMCP annotations are strictly opt-in: only hints that apply (`true`) are
+ * set, and `: false` properties are omitted. Tools generated from page markup
+ * or site endpoints always carry `untrustedContentHint: true` because their
+ * output originates from untrusted page/network content.
+ */
+function webMcpAnnotations(tool: ToolDescriptor): WebMcpAnnotations | undefined {
+  const out: WebMcpAnnotations = {};
+  if (tool.annotations.readOnlyHint) out.readOnlyHint = true;
+  if (tool.annotations.untrustedContentHint ?? tool.source.kind !== 'custom') {
+    out.untrustedContentHint = true;
+  }
+  if (tool.annotations.consequentialHint) out.consequentialHint = true;
+  return Object.keys(out).length > 0 ? out : undefined;
 }
 
 /**
@@ -46,6 +69,8 @@ export interface StartOptions extends PipelineOptions {
   watch?: boolean;
   /** How long to wait after a DOM change before remapping. Defaults to 250 ms. */
   debounceMs?: number;
+  /** Cross-origin parent origins allowed to discover and invoke tools when embedded in an iframe. */
+  exposedTo?: readonly string[];
   /** Injectable in tests. Otherwise `document.modelContext` is used. */
   modelContext?: ModelContext;
 }
@@ -152,16 +177,12 @@ export async function start(options: StartOptions = {}): Promise<Handle> {
   let lastSnapshot = '';
   let stopped = false;
 
-  /**
-   * A fingerprint of the structured markup. This is what gets compared, not the
-   * tool signatures: when only a price changes, names and descriptions stay
-   * identical while the tool closures are already stale and need rebuilding.
-   */
-  const snapshot = (): string => JSON.stringify(extract(doc, options).nodes);
-
   async function refresh(): Promise<void> {
     if (stopped) return;
-    const current = snapshot();
+    // Extract once and reuse the result in `toTools` below so a page load or
+    // route change never walks the DOM and parses the JSON-LD blocks twice.
+    const extracted = extract(doc, options);
+    const current = JSON.stringify(extracted.nodes);
     if (current === lastSnapshot) return;
     // Claimed here, before the first await, and not at the end. Recorded only
     // after the profiles chunk had arrived, this fingerprint was still unset
@@ -181,7 +202,7 @@ export async function start(options: StartOptions = {}): Promise<Handle> {
 
     let result;
     try {
-      result = toTools(doc, {
+      result = toTools(extracted, {
         ...(await loadProfiles()),
         ...options,
         ...(baseUrl ? { baseUrl } : {}),
@@ -211,6 +232,7 @@ export async function start(options: StartOptions = {}): Promise<Handle> {
     reported = result.diagnostics;
 
     for (const tool of result.tools) {
+      const annotations = webMcpAnnotations(tool);
       // Not awaited. The registerTool promise is not on the critical path, and an
       // agent that has not connected yet must not hold up the page.
       const registration = api.registerTool(
@@ -218,10 +240,14 @@ export async function start(options: StartOptions = {}): Promise<Handle> {
           name: tool.name,
           description: tool.description,
           inputSchema: tool.inputSchema,
+          ...(annotations ? { annotations } : {}),
           execute: (args: Record<string, unknown>, context?: { signal?: AbortSignal }) =>
             tool.execute(args ?? {}, { signal: executionSignal(context?.signal, batch.signal) }),
         },
-        { signal: batch.signal }
+        {
+          signal: batch.signal,
+          ...(options.exposedTo?.length ? { exposedTo: options.exposedTo } : {}),
+        }
       );
       // Not on the critical path is not the same as unobserved. WebMCP refuses a
       // name that is already live, and with nothing attached to the promise that
@@ -341,12 +367,19 @@ function watchPage(doc: Document, onChange: () => void, debounceMs: number): () 
 
   const observer = new view.MutationObserver((records) => {
     for (const record of records) {
-      const touched = [
-        ...record.addedNodes,
-        ...record.removedNodes,
-        ...(record.target ? [record.target] : []),
-      ];
-      if (touched.some(isStructuredDataNode)) {
+      for (const node of record.addedNodes) {
+        if (isStructuredDataNode(node, true)) {
+          schedule();
+          return;
+        }
+      }
+      for (const node of record.removedNodes) {
+        if (isStructuredDataNode(node, true)) {
+          schedule();
+          return;
+        }
+      }
+      if (record.target && isStructuredDataNode(record.target, false)) {
         schedule();
         return;
       }
@@ -384,11 +417,26 @@ function watchPage(doc: Document, onChange: () => void, debounceMs: number): () 
   };
 }
 
-function isStructuredDataNode(node: Node): boolean {
+const STRUCTURED_DESCENDANT_SELECTOR =
+  'script[type*="ld+json" i], [itemscope], [itemprop], [typeof], [property]';
+const STRUCTURED_ANCESTOR_SELECTOR = '[itemprop], [property], [itemscope], [typeof]';
+
+function isStructuredDataNode(node: Node, checkDescendants: boolean): boolean {
   const element = node.nodeType === 1 ? (node as Element) : (node.parentElement as Element | null);
   if (!element) return false;
   if (element.tagName === 'SCRIPT') {
-    return (element.getAttribute('type') ?? '').includes('ld+json');
+    return (element.getAttribute('type') ?? '').toLowerCase().includes('ld+json');
   }
-  return element.hasAttribute('itemscope') || element.hasAttribute('typeof');
+  if (
+    element.hasAttribute('itemscope') ||
+    element.hasAttribute('itemprop') ||
+    element.hasAttribute('typeof') ||
+    element.hasAttribute('property')
+  ) {
+    return true;
+  }
+  if (node.nodeType !== 1) {
+    return Boolean(element.closest?.(STRUCTURED_ANCESTOR_SELECTOR));
+  }
+  return checkDescendants && Boolean(element.querySelector?.(STRUCTURED_DESCENDANT_SELECTOR));
 }

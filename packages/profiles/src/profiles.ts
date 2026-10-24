@@ -138,11 +138,11 @@ export const PROFILES: readonly Profile[] = [
     slug: 'recipe',
     read: [
       {
-        description: 'The recipe on this page: ingredients, instructions, times, yield.',
-        pick: ['name', 'description', 'image', 'recipeYield', 'prepTime', 'cookTime', 'totalTime', 'recipeCategory', 'recipeCuisine', 'recipeIngredient', 'recipeInstructions', 'suitableForDiet'],
+        description: 'The recipe on this page: ingredients, instructions, times, yield. Use when the user asks how to prepare this dish or what ingredients it needs.',
+        pick: ['name', 'description', 'image', 'author', 'recipeYield', 'prepTime', 'cookTime', 'totalTime', 'recipeCategory', 'recipeCuisine', 'recipeIngredient', 'recipeInstructions', 'suitableForDiet'],
       },
-      { name: 'nutrition', from: 'nutrition', description: 'Nutritional information for the recipe.' },
-      { name: 'rating', from: 'aggregateRating', description: 'Aggregate rating of the recipe.' },
+      { name: 'nutrition', from: 'nutrition', description: 'Nutritional information for the recipe. Use when the user asks about calories or macros.' },
+      { name: 'rating', from: 'aggregateRating', description: 'Aggregate rating of the recipe. Use when the user asks how the recipe is rated.' },
     ],
   },
   {
@@ -306,6 +306,16 @@ export const PROFILES: readonly Profile[] = [
       },
       { name: 'address', from: 'address', description: 'Address of the property.' },
       { name: 'geo', from: 'geo', description: 'Geographic coordinates of the property.' },
+    ],
+  },
+  {
+    types: ['WebSite'],
+    slug: 'web_site',
+    read: [
+      {
+        description: 'Details of the website: name, URL, description, language. Use when the user asks about the site itself.',
+        pick: ['name', 'alternateName', 'url', 'description', 'inLanguage'],
+      },
     ],
   },
 ];

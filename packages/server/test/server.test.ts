@@ -6,7 +6,12 @@ import {
   StreamableHTTPClientTransport,
 } from '@modelcontextprotocol/client';
 import { InMemoryTransport } from '@modelcontextprotocol/server';
-import { createServer, createHttpHandler, parseDocument } from '../src/index.js';
+import {
+  createServer,
+  createHttpHandler,
+  parseDocument,
+  scrapePages,
+} from '../src/index.js';
 
 const PRODUCT_PAGE = `<!doctype html><html><head>
 <script type="application/ld+json">
@@ -417,3 +422,27 @@ describe('parseDocument', () => {
     }
   });
 });
+
+describe('scrapePages and URL hardening', () => {
+  it('scrapes multiple pages concurrently into structured data', async () => {
+    const pages = await scrapePages([
+      { url: 'https://negozio-a.test/p', html: PRODUCT_PAGE },
+      {
+        url: 'https://negozio-b.test/p',
+        html: '<!doctype html><html><head><title>Articolo</title><meta property="og:type" content="article"><meta property="og:title" content="Guida Trekking"></head><body></body></html>',
+      },
+    ]);
+
+    expect(pages).toHaveLength(2);
+    expect(pages[0]!.primary).toMatchObject({ type: 'Product', name: 'Zaino Trekking 45L' });
+    expect(pages[1]!.primary).toMatchObject({ type: 'Article', headline: 'Guida Trekking' });
+  });
+
+  it('rejects non-http schemes and embedded credentials when fetching a URL', async () => {
+    await expect(createServer(['file:///etc/passwd'])).rejects.toThrow(/scheme file: is not allowed/);
+    await expect(createServer(['https://user:pass@negozio.test/p'])).rejects.toThrow(
+      /credentials/
+    );
+  });
+});
+

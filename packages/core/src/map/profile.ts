@@ -97,6 +97,40 @@ export const toSlug = (value: string): string =>
       .replace(/[^a-z0-9_]+/g, '_')
   );
 
+const CONTROL_CHARS_TEST = /[\u0000-\u001f\u007f-\u009f]/;
+const CONTROL_CHARS = /[\u0000-\u001f\u007f-\u009f]/g;
+const HTML_TAG_START = /[a-zA-Z/!]/;
+
+function cleanDataString(value: string): string {
+  let out = value;
+  if (out.includes('<')) {
+    let stripped = '';
+    let from = 0;
+    for (;;) {
+      const open = out.indexOf('<', from);
+      if (open === -1) break;
+      const next = out[open + 1];
+      if (!next || !HTML_TAG_START.test(next)) {
+        stripped += out.slice(from, open + 1);
+        from = open + 1;
+        continue;
+      }
+      const close = out.indexOf('>', open + 1);
+      if (close === -1) break;
+      stripped += `${out.slice(from, open)} `;
+      from = close + 1;
+    }
+    if (from > 0) out = (stripped + out.slice(from)).replace(/\s+/g, ' ').trim();
+  }
+  if (CONTROL_CHARS_TEST.test(out)) {
+    out = out.replace(CONTROL_CHARS, '');
+  }
+  return out;
+}
+
+const isMachineryNode = (entity: Entity): boolean =>
+  entity.types.some((type) => type === 'EntryPoint' || type.endsWith('Action'));
+
 /**
  * Renders an entity as plain JSON, resolving references down to `depth`.
  * `seen` is what breaks cycles: without it, a graph with mutual references would
@@ -127,19 +161,21 @@ function render(
 
     const rendered = values
       .map((value): JsonValue | undefined => {
-        if (!isRef(value)) return value;
+        if (!isRef(value)) return typeof value === 'string' ? cleanDataString(value) : value;
         const target = graph.nodes.get(value.ref);
+        if (target && isMachineryNode(target)) return undefined;
         if (!target || depth <= 0 || seen.has(target.id)) {
           // Cannot resolve it, or we have been here already. Keep the identifier
           // so the agent still knows a link exists, without the graph blowing up.
           return target ? { id: target.id } : value.ref;
         }
-        return render(graph, target, undefined, depth - 1, new Set(seen));
+        return render(graph, target, undefined, depth - 1, seen);
       })
       .filter((v): v is JsonValue => v !== undefined);
 
     if (rendered.length === 0) continue;
     out[key] = rendered.length === 1 ? rendered[0]! : rendered;
   }
+  seen.delete(entity.id);
   return out;
 }

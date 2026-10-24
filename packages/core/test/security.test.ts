@@ -456,3 +456,137 @@ describe('actions: cancelling an execution in flight', () => {
     expect(seen[0]).toBeInstanceOf(AbortSignal);
   });
 });
+
+// ---------------------------------------------------------------------------
+
+describe('hardening: prototype pollution, authority tricks, error envelopes and HTML cleaning', () => {
+  it('survives Object.prototype property names like toString and __proto__ in JSON-LD', async () => {
+    const { tools } = toTools(
+      page(
+        `{"@context":"https://schema.org","@type":"Product","name":"Zaino",` +
+          `"toString":"non-funzione","valueOf":"42","constructor":"finto","__proto__":{"polluted":true}}`
+      ),
+      opts
+    );
+    expect(tools).toHaveLength(1);
+    const out = await run(tools[0]!);
+    expect(out).toContain('Zaino');
+    expect(({} as Record<string, unknown>)['polluted']).toBeUndefined();
+  });
+
+  it('rejects protocol-relative urlTemplates where a placeholder sits in the authority', () => {
+    const { tools, diagnostics } = toTools(
+      page(`{"@context":"https://schema.org","@type":"WebSite",
+        "potentialAction":{"@type":"SearchAction",
+          "target":{"@type":"EntryPoint","urlTemplate":"//{host}/cerca?q={q}"},
+          "query-input":"required name=q"}}`),
+      opts
+    );
+    expect(tools.filter((t) => t.source.kind === 'action')).toHaveLength(0);
+    expect(diagnostics.some((d) => d.code === 'action-skipped')).toBe(true);
+  });
+
+  it('accepts a urlTemplate with no path slash before the query string', () => {
+    const { tools } = toTools(searchPage(`${ORIGIN}?q={search_term_string}`), opts);
+    expect(tools.some((t) => t.source.kind === 'action')).toBe(true);
+  });
+
+  it('rejects urlTemplates carrying embedded credentials', () => {
+    const { tools } = toTools(
+      searchPage('https://utente:segreto@esempio.test/cerca?q={search_term_string}'),
+      opts
+    );
+    expect(tools.filter((t) => t.source.kind === 'action')).toHaveLength(0);
+  });
+
+  it('extracts required parameters from PropertyValueSpecification objects', () => {
+    const { tools } = toTools(
+      page(`{"@context":"https://schema.org","@type":"WebSite","name":"Esempio",
+        "potentialAction":{"@type":"SearchAction",
+          "target":{"@type":"EntryPoint","urlTemplate":"${ORIGIN}/cerca?q={query_term}"},
+          "query-input":{"@type":"PropertyValueSpecification","valueRequired":true,"valueName":"query_term"}}}`),
+      opts
+    );
+    const search = tools.find((t) => t.source.kind === 'action')!;
+    expect(search).toBeDefined();
+    expect(search.inputSchema.required).toEqual(['query_term']);
+  });
+
+  it('never turns SearchAction into a get_search_action read tool when the page has no other content', () => {
+    const { tools } = toTools(
+      page(`{"@context":"https://schema.org","@graph":[
+        {"@type":"WebSite","@id":"#site","name":"Esempio","potentialAction":{"@id":"#sa"}},
+        {"@type":"SearchAction","@id":"#sa",
+          "target":{"@type":"EntryPoint","urlTemplate":"${ORIGIN}/cerca?q={q}"},
+          "query-input":"required name=q"}]}`),
+      opts
+    );
+    expect(tools.map((t) => t.name)).not.toContain('get_search_action');
+    expect(tools.some((t) => t.source.kind === 'action')).toBe(true);
+  });
+
+  it('marks HTTP 4xx/5xx action responses with isError: true and recovery metadata', async () => {
+    const fetchImpl = vi.fn(async () => new Response('Troppe richieste', { status: 429 }));
+    const { tools } = toTools(searchPage(`${ORIGIN}/cerca?q={search_term_string}`), {
+      ...opts,
+      fetchImpl: fetchImpl as unknown as typeof fetch,
+    });
+    const search = tools.find((t) => t.source.kind === 'action')!;
+    const res = await search.execute({ search_term_string: 'zaino' });
+    expect(res.isError).toBe(true);
+    const parsed = JSON.parse(res.content[0]!.text) as { code: string; retryable: boolean };
+    expect(parsed.code).toBe('HTTP_429');
+    expect(parsed.retryable).toBe(true);
+  });
+
+  it('strips script/style noise when an action endpoint answers with HTML', async () => {
+    const htmlBody =
+      '<!doctype html><html><head><style>body{color:red}</style><script>alert(1)</script></head>' +
+      '<body><main><h1>Risultati per zaino</h1><p>Zaino 45L disponibile</p></main></body></html>';
+    const fetchImpl = vi.fn(
+      async () => new Response(htmlBody, { headers: { 'content-type': 'text/html; charset=utf-8' } })
+    );
+    const { tools } = toTools(searchPage(`${ORIGIN}/cerca?q={search_term_string}`), {
+      ...opts,
+      fetchImpl: fetchImpl as unknown as typeof fetch,
+    });
+    const search = tools.find((t) => t.source.kind === 'action')!;
+    const text = await run(search, { search_term_string: 'zaino' });
+    expect(text).not.toContain('alert(1)');
+    expect(text).not.toContain('color:red');
+    expect(text).toContain('Risultati per zaino');
+  });
+
+  it('strips HTML tags from materialized data strings while keeping prose "<"', async () => {
+    const { tools } = toTools(
+      page(
+        `{"@context":"https://schema.org","@type":"Product","name":"<b>Zaino</b> <i>Pro</i>",` +
+          `"description":"Peso < 1 kg"}`
+      ),
+      opts
+    );
+    const parsed = JSON.parse(await run(tools[0]!)) as { name: string; description: string };
+    expect(parsed.name).toBe('Zaino Pro');
+    expect(parsed.description).toBe('Peso < 1 kg');
+  });
+
+  it('catches exceptions thrown inside custom tool execute() and returns isError: true', async () => {
+    const { tools } = toTools(page('{"@context":"https://schema.org","@type":"Product","name":"Zaino"}'), {
+      ...opts,
+      custom: [
+        {
+          name: 'exploding_tool',
+          description: 'Lancia un errore a runtime.',
+          execute: () => {
+            throw new Error('Connessione rifiutata');
+          },
+        },
+      ],
+    });
+    const exploding = tools.find((t) => t.name === 'exploding_tool')!;
+    const result = await exploding.execute({});
+    expect(result.isError).toBe(true);
+    expect(result.content[0]!.text).toContain('Connessione rifiutata');
+  });
+});
+

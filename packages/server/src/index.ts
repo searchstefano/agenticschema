@@ -9,10 +9,12 @@ import { parseHTML } from 'linkedom';
 import {
   materialize,
   needsDocument,
+  scrape,
   toTools,
   toSlug,
   type Diagnostic,
   type PipelineOptions,
+  type ScrapeResult,
   type ToolDescriptor,
 } from '@agenticschema/core';
 import { schemaOrgProfiles } from '@agenticschema/profiles';
@@ -83,7 +85,15 @@ export async function createServer(
   );
   const validator = new AjvJsonSchemaValidator();
 
-  const pages = sources.map((s) => (typeof s === 'string' ? { url: s } : s));
+  const pages = await Promise.all(
+    sources.map(async (s) => {
+      const page = typeof s === 'string' ? { url: s } : s;
+      return {
+        url: page.url,
+        html: page.html ?? (await fetchHtml(page.url, options.fetchImpl, options.timeoutMs)),
+      };
+    })
+  );
   const multi = pages.length > 1;
 
   const allTools: ToolDescriptor[] = [];
@@ -91,7 +101,7 @@ export async function createServer(
   const usedNames = new Set<string>();
 
   for (const [index, page] of pages.entries()) {
-    const html = page.html ?? (await fetchHtml(page.url, options.fetchImpl, options.timeoutMs));
+    const html = page.html;
 
     // A DOM only earns its cost when the page carries microdata or RDFa, and
     // most pages do not. Parsing is 93% of the time from HTML to tools, so on a
@@ -188,11 +198,71 @@ export async function createHttpHandler(
 
 const DEFAULT_TIMEOUT_MS = 15_000;
 
+export interface ScrapedPage extends Omit<ScrapeResult, 'tools' | 'graph'> {
+  url: string;
+  tools: Array<{
+    name: string;
+    description: string;
+    kind: 'read' | 'action' | 'custom';
+    entityType?: string;
+  }>;
+}
+
+/**
+ * Scrapes one or more pages concurrently with full DOM support (JSON-LD,
+ * Microdata, RDFa, OpenGraph, Twitter Card, HTML `<meta>` and `<form>` fallback)
+ * and Schema.org profiles pre-wired.
+ */
+export async function scrapePages(
+  sources: readonly (PageSource | string)[],
+  options: CreateServerOptions = {}
+): Promise<ScrapedPage[]> {
+  return Promise.all(
+    sources.map(async (s) => {
+      const page = typeof s === 'string' ? { url: s } : s;
+      const html = page.html ?? (await fetchHtml(page.url, options.fetchImpl, options.timeoutMs));
+      const source = needsDocument(html, options) ? parseDocument(html) : html;
+      const result = scrape(source, {
+        ...schemaOrgProfiles,
+        ...options,
+        baseUrl: page.url,
+      });
+      return {
+        url: page.url,
+        ...(result.primary ? { primary: result.primary } : {}),
+        entities: result.entities,
+        meta: result.meta,
+        actions: result.actions,
+        tools: result.tools.map((t) => ({
+          name: t.name,
+          description: t.description,
+          kind: t.source.kind,
+          ...(t.source.entityType ? { entityType: t.source.entityType } : {}),
+        })),
+        diagnostics: result.diagnostics,
+      };
+    })
+  );
+}
+
 async function fetchHtml(
   url: string,
   fetchImpl?: typeof globalThis.fetch,
   timeoutMs = DEFAULT_TIMEOUT_MS
 ): Promise<string> {
+  let parsed: URL;
+  try {
+    parsed = new URL(url);
+  } catch {
+    throw new Error(`${url}: invalid URL`);
+  }
+  if (parsed.protocol !== 'https:' && parsed.protocol !== 'http:') {
+    throw new Error(`${url}: scheme ${parsed.protocol} is not allowed`);
+  }
+  if (parsed.username || parsed.password) {
+    throw new Error(`${url}: credentials in URL are not allowed`);
+  }
+
   const doFetch = fetchImpl ?? globalThis.fetch;
   // A page that never answers would otherwise block startup, and over stdio the
   // agent just hangs with nothing to show for it.

@@ -1,11 +1,14 @@
-import { extract, type ExtractOptions } from './extract/index.js';
+import { extract, extractMeta, type ExtractOptions, type PageMeta } from './extract/index.js';
 import { normalize, type NormalizeOptions } from './normalize/index.js';
-import { DEFAULT_MAX_TOOLS, mapToTools, type MapOptions } from './map/index.js';
+import { selectPrimary } from './select/primary.js';
+import { DEFAULT_MAX_TOOLS, mapToTools, materialize, type MapOptions } from './map/index.js';
 import { mapActions, type ActionOptions } from './map/actions.js';
 import { guardTools, type GuardOptions } from './guard/index.js';
 import type {
   Diagnostic,
   EntityGraph,
+  ExtractResult,
+  JsonObject,
   JsonSchemaObject,
   ToolDescriptor,
   ToolExecutionContext,
@@ -47,13 +50,34 @@ export interface PipelineResult {
   graph: EntityGraph;
 }
 
+export interface ScrapeActionSummary {
+  name: string;
+  type: string;
+  description: string;
+  parameters: string[];
+  required: string[];
+}
+
+export interface ScrapeResult extends PipelineResult {
+  primary?: JsonObject;
+  entities: JsonObject[];
+  meta: PageMeta;
+  actions: ScrapeActionSummary[];
+}
+
+const isExtractResult = (v: Document | string | ExtractResult): v is ExtractResult =>
+  typeof v === 'object' && v !== null && 'nodes' in v && Array.isArray(v.nodes) && !('nodeType' in v);
+
 /**
  * From a page to tool descriptors, with the safety checks applied.
  * Both adapters call this. The only difference between browser and server is
  * what you hand in as `source` and how the tools get registered afterwards.
  */
-export function toTools(source: Document | string, options: PipelineOptions = {}): PipelineResult {
-  const extracted = extract(source, options);
+export function toTools(
+  source: Document | string | ExtractResult,
+  options: PipelineOptions = {}
+): PipelineResult {
+  const extracted = isExtractResult(source) ? source : extract(source, options);
   const graph = normalize(extracted.nodes, options);
 
   // With no explicit pageOrigin, try to derive it from baseUrl. Without either,
@@ -94,6 +118,50 @@ export function toTools(source: Document | string, options: PipelineOptions = {}
   };
 }
 
+/**
+ * One-call scraper: extracts Schema.org (with OpenGraph, Twitter Card, `<meta>`
+ * and HTML `<form>` fallback enabled by default), materialises the primary
+ * subject and all page entities into clean JSON, and returns the ready-to-call
+ * tools alongside page metadata.
+ */
+export function scrape(source: Document | string, options: PipelineOptions = {}): ScrapeResult {
+  const meta = extractMeta(source);
+  const baseUrl = options.baseUrl ?? meta.canonical;
+  const result = toTools(source, {
+    fallback: true,
+    ...options,
+    ...(baseUrl ? { baseUrl } : {}),
+  });
+
+  const primaryId = selectPrimary(result.graph);
+  const primaryNode = primaryId ? result.graph.nodes.get(primaryId) : undefined;
+  const primary = primaryNode ? materialize(result.graph, primaryNode) : undefined;
+
+  const entities: JsonObject[] = [];
+  for (const entity of result.graph.nodes.values()) {
+    if (entity.types.some((t) => t === 'EntryPoint' || t.endsWith('Action'))) continue;
+    entities.push(materialize(result.graph, entity));
+  }
+
+  const actions: ScrapeActionSummary[] = result.tools
+    .filter((t) => t.source.kind === 'action')
+    .map((t) => ({
+      name: t.name,
+      type: t.source.entityType ?? 'Action',
+      description: t.description,
+      parameters: Object.keys(t.inputSchema.properties),
+      required: t.inputSchema.required ?? [],
+    }));
+
+  return {
+    ...result,
+    ...(primary ? { primary } : {}),
+    entities,
+    meta,
+    actions,
+  };
+}
+
 /** Puts a hand-declared tool into the shape the rest of the pipeline expects. */
 export function defineTool(tool: CustomTool): ToolDescriptor {
   return {
@@ -103,6 +171,12 @@ export function defineTool(tool: CustomTool): ToolDescriptor {
     annotations: {
       readOnlyHint: tool.annotations?.readOnlyHint ?? false,
       openWorldHint: tool.annotations?.openWorldHint ?? true,
+      ...(tool.annotations?.untrustedContentHint !== undefined
+        ? { untrustedContentHint: tool.annotations.untrustedContentHint }
+        : {}),
+      ...(tool.annotations?.consequentialHint !== undefined
+        ? { consequentialHint: tool.annotations.consequentialHint }
+        : {}),
     },
     execute: tool.execute,
     source: { kind: 'custom' },

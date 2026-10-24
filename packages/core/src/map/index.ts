@@ -6,7 +6,15 @@ import {
   type Profile,
   type ReadSpec,
 } from './profile.js';
-import { isRef, type Diagnostic, type Entity, type EntityGraph, type ToolDescriptor } from '../types.js';
+import {
+  isRef,
+  type Diagnostic,
+  type Entity,
+  type EntityGraph,
+  type JsonObject,
+  type ToolDescriptor,
+  type ToolResult,
+} from '../types.js';
 
 export { type Profile, type ReadSpec, genericProfile, materialize, toSlug } from './profile.js';
 
@@ -44,14 +52,19 @@ export function mapToTools(graph: EntityGraph, options: MapOptions = {}): MapRes
   // The primary entity goes first. If the cap does bite, what survives should
   // describe the subject of the page rather than the furniture around it.
   const primaryId = selectPrimary(graph);
+  const rootSet = new Set(graph.roots);
   const ordered = [
     ...(primaryId ? [primaryId] : []),
     ...graph.roots.filter((id) => id !== primaryId),
-    ...[...graph.nodes.keys()].filter((id) => id !== primaryId && !graph.roots.includes(id)),
+    ...[...graph.nodes.keys()].filter((id) => id !== primaryId && !rootSet.has(id)),
   ];
 
-  // An entity reached through another entity's `from` is already on show through
-  // that tool. Giving it one of its own repeats the same data and eats budget.
+  const primary = primaryId ? graph.nodes.get(primaryId) : undefined;
+  const primaryHasImage = Boolean(primary?.props['image']?.length);
+
+  // An entity reached through another entity's `from` or inlined by `materialize`
+  // is already on show through that tool. Giving it one of its own repeats the
+  // same data and eats budget.
   const profiles = new Map<string, Profile>();
   const consumed = new Set<string>();
   for (const id of ordered) {
@@ -59,6 +72,17 @@ export function mapToTools(graph: EntityGraph, options: MapOptions = {}): MapRes
     if (!entity) continue;
     const profile = resolveProfile(entity, options) ?? genericProfile(entity);
     profiles.set(id, profile);
+
+    if (id !== primaryId && (isMachinery(entity) || isChrome(entity))) {
+      if (primaryHasImage && entity.types.some((t) => t.endsWith('Page'))) {
+        for (const v of entity.props['primaryImageOfPage'] ?? []) {
+          if (isRef(v)) consumed.add(v.ref);
+        }
+      }
+      continue;
+    }
+    if (id !== primaryId && consumed.has(id)) continue;
+
     for (const spec of profile.read) {
       // `from` navigates to the entity, `pick` renders it inline inside the
       // parent. Either way it is already visible, so a tool of its own is a copy.
@@ -71,11 +95,17 @@ export function mapToTools(graph: EntityGraph, options: MapOptions = {}): MapRes
       // and leaving it unconsumed gave a variant page a second `get_product`, a
       // second `get_product_variants` and a second `get_product_rating`, each
       // word for word the description of the first.
-      const properties = spec.from ? candidatePaths(spec.from) : (spec.pick ?? []);
-      for (const property of properties) {
-        for (const target of entitiesAlong(graph, entity, property)) {
-          if (target.id !== id) consumed.add(target.id);
+      if (spec.from) {
+        for (const property of candidatePaths(spec.from)) {
+          for (const target of entitiesAlong(graph, entity, property)) {
+            if (target.id !== id) consumed.add(target.id);
+          }
         }
+        for (const target of firstResolved(graph, entity, spec.from)) {
+          markMaterialized(graph, target, spec.pick, 2, consumed, id);
+        }
+      } else {
+        markMaterialized(graph, entity, spec.pick, 2, consumed, id);
       }
     }
   }
@@ -91,7 +121,9 @@ export function mapToTools(graph: EntityGraph, options: MapOptions = {}): MapRes
     const entity = graph.nodes.get(id);
     if (!entity || isMachinery(entity) || isChrome(entity)) continue;
     const slug = profiles.get(id)?.slug ?? 'thing';
-    groups.set(slug, [...(groups.get(slug) ?? []), id]);
+    const existing = groups.get(slug);
+    if (existing) existing.push(id);
+    else groups.set(slug, [id]);
   }
 
   let capped = false;
@@ -105,8 +137,7 @@ export function mapToTools(graph: EntityGraph, options: MapOptions = {}): MapRes
   };
 
   // The primary entity keeps its own dedicated tools. It is what the page is about.
-  const primary = primaryId ? graph.nodes.get(primaryId) : undefined;
-  if (primary) {
+  if (primary && !isMachinery(primary)) {
     const profile = profiles.get(primary.id) ?? genericProfile(primary);
     for (const spec of profile.read) {
       if (!emit(buildReadTool(graph, primary, profile, spec, usedNames))) break;
@@ -145,6 +176,37 @@ export function mapToTools(graph: EntityGraph, options: MapOptions = {}): MapRes
 }
 
 /**
+ * Marks every entity that `materialize(graph, entity, { pick, depth })` renders
+ * inline as consumed, so those inlined child nodes do not reappear as duplicate
+ * standalone tools.
+ */
+function markMaterialized(
+  graph: EntityGraph,
+  entity: Entity,
+  pick: string[] | undefined,
+  depth: number,
+  consumed: Set<string>,
+  ownerId: string,
+  seen: Set<string> = new Set()
+): void {
+  if (depth <= 0 || seen.has(entity.id)) return;
+  seen.add(entity.id);
+
+  const keys = pick ?? Object.keys(entity.props);
+  for (const key of keys) {
+    if (!Object.hasOwn(entity.props, key)) continue;
+    for (const value of entity.props[key] ?? []) {
+      if (!isRef(value)) continue;
+      const target = graph.nodes.get(value.ref);
+      if (!target || seen.has(target.id)) continue;
+      if (target.id !== ownerId) consumed.add(target.id);
+      markMaterialized(graph, target, undefined, depth - 1, consumed, ownerId, seen);
+    }
+  }
+  seen.delete(entity.id);
+}
+
+/**
  * Protocol machinery rather than content. A `SearchAction` says how to search
  * and an `EntryPoint` says where. As read tools they would give an agent a
  * `get_search_action` that answers no question anyone would ask. Actions become
@@ -177,6 +239,8 @@ const CHROME_TYPES = new Set([
   'WPFooter',
   'WPSideBar',
   'SiteNavigationElement',
+  'ItemList',
+  'ListItem',
 ]);
 
 /**
@@ -195,6 +259,11 @@ function resolveProfile(entity: Entity, options: MapOptions): Profile | undefine
   for (const type of entity.types) {
     const direct = profiles.find((p) => p.types.includes(type));
     if (direct) return direct;
+  }
+  for (const type of entity.types) {
+    const lower = type.toLowerCase();
+    const caseless = profiles.find((p) => p.types.some((t) => t.toLowerCase() === lower));
+    if (caseless) return caseless;
   }
   if (!options.ancestorsOf) return undefined;
 
@@ -224,6 +293,7 @@ function buildReadTool(
   const name = uniqueName(base, usedNames);
 
   const selected = spec.list ? targets : targets.slice(0, 1);
+  let cached: ToolResult | undefined;
 
   return {
     name,
@@ -232,8 +302,9 @@ function buildReadTool(
     // Built from markup already in the page. Nothing is written and nothing is fetched.
     annotations: { readOnlyHint: true, openWorldHint: false },
     execute: () => {
+      if (cached) return cached;
       const payload = selected.map((target) => materialize(graph, target, { pick: spec.pick }));
-      return {
+      cached = {
         content: [
           {
             type: 'text',
@@ -241,6 +312,7 @@ function buildReadTool(
           },
         ],
       };
+      return cached;
     },
     source: { kind: 'read', entityId: entity.id, entityType: entity.types[0] },
   };
@@ -256,6 +328,11 @@ function buildGroupTool(
 ): ToolDescriptor {
   const name = uniqueName(`list_${profile.slug}`, usedNames);
   const type = entities[0]?.types[0] ?? profile.slug;
+  let itemsCache: JsonObject[] | undefined;
+  let fullResultCache: ToolResult | undefined;
+
+  const getItems = (): JsonObject[] =>
+    (itemsCache ??= entities.map((e) => materialize(graph, e, { pick: spec.pick })));
 
   return {
     name,
@@ -266,20 +343,44 @@ function buildGroupTool(
     // agent reads as instructions — while the same prose was being kept out of
     // every other description on the page.
     description: `All ${entities.length} ${profile.slug} entries on this page. ${spec.description}`,
-    inputSchema: { type: 'object', properties: {}, additionalProperties: false },
+    inputSchema: {
+      type: 'object',
+      properties: {
+        query: { type: 'string', description: 'Case-insensitive keyword filter.' },
+        limit: { type: 'integer', description: 'Max entries to return.' },
+        offset: { type: 'integer', description: 'Entries to skip.' },
+      },
+      additionalProperties: false,
+    },
     annotations: { readOnlyHint: true, openWorldHint: false },
-    execute: () => ({
-      content: [
-        {
-          type: 'text',
-          text: JSON.stringify(
-            entities.map((e) => materialize(graph, e, { pick: spec.pick })),
-            null,
-            2
-          ),
-        },
-      ],
-    }),
+    execute: (args) => {
+      const rawQuery = typeof args?.['query'] === 'string' ? args['query'].trim().toLowerCase() : '';
+      const rawOffset = typeof args?.['offset'] === 'number' && Number.isFinite(args['offset'])
+        ? Math.max(0, Math.floor(args['offset']))
+        : undefined;
+      const rawLimit = typeof args?.['limit'] === 'number' && Number.isFinite(args['limit'])
+        ? Math.max(0, Math.floor(args['limit']))
+        : undefined;
+
+      if (!rawQuery && rawOffset === undefined && rawLimit === undefined) {
+        return (fullResultCache ??= {
+          content: [{ type: 'text', text: JSON.stringify(getItems(), null, 2) }],
+        });
+      }
+
+      let filtered = getItems();
+      if (rawQuery) {
+        filtered = filtered.filter((item) => JSON.stringify(item).toLowerCase().includes(rawQuery));
+      }
+      if (rawOffset !== undefined || rawLimit !== undefined) {
+        const start = rawOffset ?? 0;
+        const end = rawLimit !== undefined ? start + rawLimit : undefined;
+        filtered = filtered.slice(start, end);
+      }
+      return {
+        content: [{ type: 'text', text: JSON.stringify(filtered, null, 2) }],
+      };
+    },
     source: { kind: 'read', entityType: type },
   };
 }
@@ -323,7 +424,8 @@ function walkPath(graph: EntityGraph, entity: Entity, path: string): Entity[][] 
     const next: Entity[] = [];
     const seen = new Set<string>();
     for (const node of current) {
-      for (const value of node.props[property] ?? []) {
+      const propValues = Object.hasOwn(node.props, property) ? node.props[property] : undefined;
+      for (const value of propValues ?? []) {
         if (!isRef(value)) continue;
         const target = graph.nodes.get(value.ref);
         if (target && !seen.has(target.id)) {

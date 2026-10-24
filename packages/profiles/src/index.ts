@@ -6,6 +6,18 @@ export { PROFILES } from './profiles.js';
 export { DIRECT_PARENTS } from './hierarchy.generated.js';
 
 const cache = new Map<string, readonly string[]>();
+let lowerMap: Map<string, string> | undefined;
+
+function canonicalType(type: string): string {
+  if (Object.hasOwn(DIRECT_PARENTS, type)) return type;
+  if (!lowerMap) {
+    lowerMap = new Map();
+    for (const key of Object.keys(DIRECT_PARENTS)) {
+      lowerMap.set(key.toLowerCase(), key);
+    }
+  }
+  return lowerMap.get(type.toLowerCase()) ?? type;
+}
 
 /**
  * Ancestors of a Schema.org type, nearest first.
@@ -20,9 +32,10 @@ export function ancestorsOf(type: string): readonly string[] {
   const cached = cache.get(type);
   if (cached) return cached;
 
+  const start = canonicalType(type);
   const out: string[] = [];
-  const seen = new Set<string>([type]);
-  let frontier = [...(DIRECT_PARENTS[type] ?? [])];
+  const seen = new Set<string>([start]);
+  let frontier = [...(Object.hasOwn(DIRECT_PARENTS, start) ? (DIRECT_PARENTS[start] ?? []) : [])];
 
   while (frontier.length) {
     const next: string[] = [];
@@ -30,7 +43,9 @@ export function ancestorsOf(type: string): readonly string[] {
       if (seen.has(parent)) continue;
       seen.add(parent);
       out.push(parent);
-      next.push(...(DIRECT_PARENTS[parent] ?? []));
+      if (Object.hasOwn(DIRECT_PARENTS, parent)) {
+        next.push(...(DIRECT_PARENTS[parent] ?? []));
+      }
     }
     frontier = next;
   }

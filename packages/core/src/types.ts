@@ -122,6 +122,8 @@ export interface ToolDescriptor {
   annotations: {
     readOnlyHint: boolean;
     openWorldHint: boolean;
+    untrustedContentHint?: boolean;
+    consequentialHint?: boolean;
   };
   execute: (
     args: Record<string, unknown>,

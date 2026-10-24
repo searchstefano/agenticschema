@@ -128,7 +128,7 @@ export function mapActions(graph: EntityGraph, options: ActionOptions = {}): Act
         continue;
       }
 
-      const required = requiredParam(action);
+      const required = requiredParam(graph, action);
       // The host entity's `@type` comes off the page, and a name is instructions
       // on a smaller channel than a description. Through `typeLabel` so a
       // sentence parked in `@type` cannot become one.
@@ -168,15 +168,19 @@ function buildActionTool(args: {
   entityId: string;
 }): ToolDescriptor {
   const { name, type, urlTemplate, params, required, options, entityId } = args;
+  const actionVerb = type.replace('Action', '').toLowerCase();
 
   const properties: Record<string, JsonObject> = {};
   for (const param of params) {
-    properties[param] = { type: 'string', description: `Value for {${param}}` };
+    properties[param] = {
+      type: 'string',
+      description: `Value for {${param}} in the ${actionVerb} request.`,
+    };
   }
 
   return {
     name,
-    description: `Run this site's own ${type.replace('Action', '').toLowerCase()} and return the raw response.`,
+    description: `Run this site's own ${actionVerb} and return the response. Use when the user wants to ${actionVerb} on this site.`,
     inputSchema: {
       type: 'object',
       properties,
@@ -216,7 +220,28 @@ function buildActionTool(args: {
           // and a site that needs the hop can declare the tool with `defineTool`.
           redirect: 'error',
         });
-        return { content: [{ type: 'text', text: await response.text() }] };
+        if (!response.ok) {
+          const status = response.status;
+          const retryable = status === 429 || status >= 500;
+          return {
+            isError: true,
+            content: [
+              {
+                type: 'text',
+                text: JSON.stringify({
+                  error: `HTTP ${status}${response.statusText ? ` ${response.statusText}` : ''}`,
+                  code: `HTTP_${status}`,
+                  retryable,
+                  suggestion: retryable
+                    ? 'The site endpoint failed temporarily. Wait briefly and retry once.'
+                    : 'Check the parameters or try a broader query.',
+                }),
+              },
+            ],
+          };
+        }
+        const raw = await response.text();
+        return { content: [{ type: 'text', text: cleanActionResponse(raw) }] };
       } catch (err) {
         return {
           isError: true,
@@ -228,6 +253,29 @@ function buildActionTool(args: {
   };
 }
 
+const HTML_DOC_RE = /<(?:!doctype\s+html|html|head|body)\b/i;
+const NOISE_BLOCKS_RE = /<(script|style|svg|noscript|template)\b[\s\S]*?<\/\1\s*>/gi;
+
+/**
+ * When a search action returns a full HTML document, stripping `<script>`,
+ * `<style>`, `<svg>` and markup tags keeps the 32 KB payload cap from cutting
+ * off inside `<head>` before the search results in `<body>` even begin.
+ */
+function cleanActionResponse(raw: string): string {
+  if (!HTML_DOC_RE.test(raw)) return raw;
+  const withoutNoise = raw.replace(NOISE_BLOCKS_RE, ' ');
+  let out = '';
+  let from = 0;
+  for (;;) {
+    const open = withoutNoise.indexOf('<', from);
+    if (open === -1) break;
+    const close = withoutNoise.indexOf('>', open + 1);
+    if (close === -1) break;
+    out += `${withoutNoise.slice(from, open)} `;
+    from = close + 1;
+  }
+  return (out + withoutNoise.slice(from)).replace(/\s+/g, ' ').trim();
+}
 
 /**
  * The caller's cancellation and the timeout as a single signal. The timeout is
@@ -265,11 +313,15 @@ function safeDestination(
     return { error: `scheme ${url.protocol} not allowed` };
   }
 
+  if (url.username || url.password) {
+    return { error: 'credentials in URL are not allowed' };
+  }
+
   const allowed = new Set([
-    ...(options.pageOrigin ? [new URL(options.pageOrigin).host] : []),
-    ...(options.allowedHosts ?? []),
+    ...(options.pageOrigin ? [new URL(options.pageOrigin).host.toLowerCase()] : []),
+    ...(options.allowedHosts ?? []).map((h) => h.trim().toLowerCase()),
   ]);
-  if (!allowed.has(url.host)) {
+  if (!allowed.has(url.host.toLowerCase())) {
     return { error: `host ${url.host} is outside the page origin` };
   }
 
@@ -280,17 +332,31 @@ function safeDestination(
   }
 }
 
+function firstDelimiter(value: string, from: number): number {
+  let end = value.length;
+  for (const ch of ['/', '?', '#']) {
+    const idx = value.indexOf(ch, from);
+    if (idx !== -1 && idx < end) end = idx;
+  }
+  return end;
+}
+
 /**
  * A parameter sitting in the authority (scheme, host, port) could change where
  * the request goes. Everywhere else in the template is path and query, and there
  * encoding the value is enough to keep it inside its own segment.
  */
 function touchesAuthority(template: string): boolean {
-  const schemeEnd = template.indexOf('://');
-  if (schemeEnd === -1) return /^\{/.test(template.trim()); // relative template
-  const pathStart = template.indexOf('/', schemeEnd + 3);
-  const authority = pathStart === -1 ? template : template.slice(0, pathStart);
-  return /\{[A-Za-z0-9_]+\}/.test(authority);
+  const trimmed = template.trim();
+  if (trimmed.startsWith('//') || trimmed.startsWith('\\\\')) {
+    const end = firstDelimiter(trimmed, 2);
+    return /\{[A-Za-z0-9_]+\}/.test(trimmed.slice(0, end)) || trimmed.slice(0, end).includes('\\');
+  }
+  const schemeEnd = trimmed.indexOf('://');
+  if (schemeEnd === -1) return /^\{/.test(trimmed) || trimmed.includes('\\'); // relative template
+  const pathStart = firstDelimiter(trimmed, schemeEnd + 3);
+  const authority = trimmed.slice(0, pathStart);
+  return /\{[A-Za-z0-9_]+\}/.test(authority) || authority.includes('\\');
 }
 
 /** RFC 6570 level 1 only: `{var}`. No operators, no explosions. */
@@ -302,16 +368,28 @@ const templateVariables = (template: string): string[] => [
 
 function expand(template: string, input: Record<string, unknown>): string {
   return template.replace(TEMPLATE_VAR, (_match, name: string) => {
+    if (!Object.hasOwn(input, name)) return '';
     const value = input[name];
-    return value === undefined ? '' : encodeURIComponent(String(value));
+    return value === undefined || value === null ? '' : encodeURIComponent(String(value));
   });
 }
 
 /** Handles both the string form `"required name=x"` and PropertyValueSpecification. */
-function requiredParam(action: Entity): string | undefined {
+function requiredParam(graph: EntityGraph, action: Entity): string | undefined {
   const spec = action.props['query-input']?.[0];
   if (typeof spec === 'string') {
     return /\brequired\b/.test(spec) ? /name=(\S+)/.exec(spec)?.[1] : undefined;
+  }
+  if (spec && isRef(spec)) {
+    const node = graph.nodes.get(spec.ref);
+    const required = node?.props['valueRequired']?.[0];
+    const name = firstString(node?.props['valueName']);
+    if (
+      name &&
+      (required === true || required === 'true' || required === 'https://schema.org/True')
+    ) {
+      return name;
+    }
   }
   return undefined;
 }

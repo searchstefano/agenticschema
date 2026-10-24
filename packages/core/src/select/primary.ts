@@ -18,8 +18,18 @@ export const BOILERPLATE_TYPES = new Set([
 
 const isPage = (types: string[]): boolean => types.some((t) => t.endsWith('Page'));
 
+const isActionOrEntry = (types: string[]): boolean =>
+  types.some((t) => t === 'EntryPoint' || t.endsWith('Action'));
+
 const isBoilerplate = (types: string[]): boolean =>
-  types.length > 0 && types.every((t) => BOILERPLATE_TYPES.has(t) || t.endsWith('Page'));
+  types.length > 0 &&
+  types.every(
+    (t) =>
+      BOILERPLATE_TYPES.has(t) ||
+      t.endsWith('Page') ||
+      t === 'EntryPoint' ||
+      t.endsWith('Action')
+  );
 
 /**
  * Works out which entity a page is actually about.
@@ -60,5 +70,16 @@ export function selectPrimary(graph: EntityGraph): string | undefined {
     if (entity.types.length > 0 && !isBoilerplate(entity.types)) return entity.id;
   }
 
-  return graph.roots[0];
+  // 6. On a listing/category page carrying only boilerplate + ItemList, the
+  // ItemList is the content. Otherwise fall back to the first non-action root.
+  for (const entity of graph.nodes.values()) {
+    if (entity.types.includes('ItemList')) return entity.id;
+  }
+
+  return (
+    graph.roots.find((id) => {
+      const entity = graph.nodes.get(id);
+      return entity !== undefined && !isActionOrEntry(entity.types);
+    }) ?? graph.roots[0]
+  );
 }

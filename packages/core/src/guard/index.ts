@@ -1,4 +1,4 @@
-import type { Diagnostic, ToolDescriptor } from '../types.js';
+import type { Diagnostic, ToolDescriptor, ToolResult } from '../types.js';
 
 /**
  * The core takes page content and puts it in front of a model. That opens two
@@ -30,6 +30,7 @@ const VALID_TOOL_NAME = /^[a-zA-Z0-9_-]{1,64}$/;
 // Written as escapes on purpose: a literal control character in source is
 // invisible in review and does not survive the first copy-paste. C0 + DEL + C1,
 // which is where ANSI sequences and record separators live.
+const CONTROL_CHARS_TEST = /[\u0000-\u001f\u007f-\u009f]/;
 const CONTROL_CHARS = /[\u0000-\u001f\u007f-\u009f]/g;
 /**
  * Replaces every `<…>` with a space: from a `<` to the first `>` after it, an
@@ -116,7 +117,28 @@ export function guardTools(
         // disarmed cancellation for the whole toolset: the signal was passed in
         // and simply never arrived.
         execute: async (args, context) => {
-          const result = await tool.execute(args, context);
+          let result: ToolResult;
+          try {
+            result = await tool.execute(args, context);
+          } catch (err) {
+            const message = err instanceof Error ? err.message : String(err);
+            return {
+              isError: true,
+              content: [
+                {
+                  type: 'text',
+                  text: capPayload(
+                    JSON.stringify({
+                      error: message,
+                      code: 'EXECUTION_FAILED',
+                      retryable: false,
+                    }),
+                    maxPayload
+                  ),
+                },
+              ],
+            };
+          }
           return {
             ...result,
             content: result.content.map((block) => ({
@@ -132,7 +154,11 @@ export function guardTools(
 }
 
 function capPayload(text: string, maxBytes: number): string {
-  const clean = text.replace(CONTROL_CHARS, '');
+  const clean = CONTROL_CHARS_TEST.test(text) ? text.replace(CONTROL_CHARS, '') : text;
+  // A UTF-16 code unit encodes to at most 3 UTF-8 bytes (a surrogate pair is 2
+  // code units -> 4 bytes = 2 bytes per unit). When `clean.length * 3 <= maxBytes`,
+  // it is guaranteed to fit without allocating a Uint8Array via TextEncoder.
+  if (clean.length * 3 <= maxBytes) return clean;
   const bytes = encoder.encode(clean);
   if (bytes.length <= maxBytes) return clean;
 

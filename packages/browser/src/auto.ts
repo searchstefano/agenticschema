@@ -24,8 +24,12 @@ function optionsFromScriptTag(): StartOptions {
     ...(data['actions'] === 'off' ? { actions: 'off' as const } : {}),
     ...(Number.isFinite(maxTools) && maxTools > 0 ? { maxTools } : {}),
     ...(data['watch'] === 'off' ? { watch: false } : {}),
+    ...(data['fallback'] === 'on' || data['fallback'] === 'true' ? { fallback: true } : {}),
     ...(data['allowHosts']
-      ? { allowedHosts: data['allowHosts'].split(',').map((h) => h.trim()) }
+      ? { allowedHosts: data['allowHosts'].split(',').map((h) => h.trim()).filter(Boolean) }
+      : {}),
+    ...(data['exposedTo']
+      ? { exposedTo: data['exposedTo'].split(',').map((h) => h.trim()).filter(Boolean) }
       : {}),
   };
 }

@@ -514,3 +514,64 @@ describe('cancelling work the page has moved on from', () => {
     expect(result.isError).toBe(true);
   });
 });
+
+// ---------------------------------------------------------------------------
+
+describe('WebMCP compliance: opt-in annotations, exposedTo and deep DOM watching', () => {
+  it('passes only opt-in true annotations and never false keys to registerTool', async () => {
+    setPage(SEARCH_PAGE);
+    const registered: Array<{
+      name: string;
+      annotations?: unknown;
+      exposedTo?: readonly string[];
+    }> = [];
+    const api: NonNullable<StartOptions['modelContext']> = {
+      registerTool(tool, options) {
+        registered.push({
+          name: tool.name,
+          annotations: tool.annotations,
+          ...(options?.exposedTo ? { exposedTo: options.exposedTo } : {}),
+        });
+        return Promise.resolve();
+      },
+    };
+
+    handle = await start({
+      document,
+      modelContext: api,
+      baseUrl: 'https://negozio.test/',
+      exposedTo: ['https://parent.test'],
+      watch: false,
+    });
+
+    expect(registered.length).toBeGreaterThan(0);
+    for (const tool of registered) {
+      expect(tool.exposedTo).toEqual(['https://parent.test']);
+      expect(tool.annotations).toEqual({
+        readOnlyHint: true,
+        untrustedContentHint: true,
+      });
+      expect(Object.values((tool.annotations ?? {}) as Record<string, unknown>)).not.toContain(false);
+    }
+  });
+
+  it('detects dynamic container insertions that wrap JSON-LD scripts', async () => {
+    setPage(PRODUCT);
+    const api = fakeModelContext();
+    handle = await start({ document, modelContext: api, debounceMs: 5 });
+    expect([...api.live.keys()]).toContain('get_product');
+
+    // Simulate a SPA router replacing a wrapper <div> that holds a child <script type="application/ld+json">.
+    document.body.innerHTML = '';
+    const wrapper = document.createElement('div');
+    wrapper.innerHTML = `<script type="application/ld+json">${JSON.stringify({
+      '@context': 'https://schema.org',
+      '@type': 'Recipe',
+      name: 'Tiramisu',
+    })}</script>`;
+    document.body.appendChild(wrapper);
+
+    await vi.waitFor(() => expect([...api.live.keys()]).toEqual(['get_recipe']), { timeout: 1000 });
+  });
+});
+

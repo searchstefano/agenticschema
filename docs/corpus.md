@@ -30,35 +30,37 @@ Tokens per page, averaged over the corpus, counted with `o200k_base`:
 
 | What the model reads | Tokens | vs raw HTML | vs extracted text |
 | --- | ---: | ---: | ---: |
-| Raw HTML, as served | 143,771 | — | — |
+| Raw HTML, as served | 143,770 | — | — |
 | Extracted text, what a competent scraper sends | 2,752 | 52x | — |
-| AgenticSchema tool output | 1,440 | **100x** | **1.9x** |
+| AgenticSchema tool output | **1,013** | **142x** | **2.7x** |
 
-The 100x is the number that looks good in a headline and it is the wrong one to quote. Nobody
+The 142x is the number that looks good in a headline and it is the wrong one to quote alone. Nobody
 serious feeds raw HTML to a model; a scraper strips the markup first, and that single step
-accounts for 52 of the 100. **Against a competent scraper the honest figure is 1.9x**, and it is
-not uniform:
+accounts for 52 of the 142. **Against a competent scraper the honest figure is 2.7x**, and it
+holds or improves across every vertical:
 
 | Vertical | Pages | Raw HTML | Extracted text | AgenticSchema | vs text |
 | --- | ---: | ---: | ---: | ---: | ---: |
-| reference | 50 | 62,731 | 3,699 | 208 | 18x |
+| reference | 50 | 62,730 | 3,699 | 208 | 18x |
 | news | 25 | 90,530 | 882 | 528 | 1.7x |
-| ecommerce | 75 | 240,151 | 2,912 | 1,815 | 1.6x |
-| recipe | 25 | 58,454 | 1,549 | **3,787** | **0.4x** |
+| ecommerce | 75 | 240,151 | 2,912 | **1,567** | **1.9x** |
+| recipe | 25 | 58,454 | 1,549 | **1,514** | **1.0x** |
 | book | 2 | 287,454 | 11,534 | 191 | 61x |
 
-The ecommerce row has moved twice and the round trip is worth recording. It was 1,843 tokens when
-a `ProductGroup`'s price was unreachable; exposing the variants took it to 1,934, which looked
-like the price of correctness — a saving measured on data an agent cannot use is not a saving.
-Then the same paths were taught to count the entities they pass through as already described, the
-duplicate tools a variant page had been emitting disappeared, and it settled at **1,815: below
-where it started, while exposing more.** Deduplication paid for the fix and left change.
+The ecommerce and recipe rows have moved as deduplication improved, and the progression is worth
+recording. Ecommerce started at 1,843 tokens when a `ProductGroup`'s price was unreachable;
+exposing the variants took it to 1,934, then counting path-traversed entities as consumed took it
+to 1,815, and finally transitive child deduplication (`markMaterialized` down to depth 2) plus
+suppressing secondary navigation `ItemList`s brought it to **1,567 tokens (1.9x vs text)**.
 
-**On recipes the library loses: more than twice the tokens of simply sending the text.** A
-recipe's structured data is the recipe — every ingredient, every step, every timing, plus a
-nutrition block — so the tools re-emit as JSON what the page already said in prose, and JSON is
-the more expensive of the two encodings. Reference pages sit at the other extreme, 18x, because a
-Wikipedia article is enormous and its markup describes it in a sentence.
+**On recipes, transitive deduplication eliminated the 0.4x regression.** Previously, recipes cost
+3,787 tokens (0.4x vs text) because child nodes already embedded inside `get_recipe` (`Person`,
+`HowToSection`, `ImageObject`, `NutritionInformation`) and related-recipe `ItemList` carousels were
+re-emitted as separate tools. Marking transitively materialized entities as consumed cut recipe
+tokens by 60% to **1,514 tokens (1.0x vs text)** — matching the token cost of plain text while
+giving the agent structured fields (`recipeYield`, timings, ingredients, steps). Reference pages
+sit at the other extreme, 18x, because a Wikipedia article is enormous and its markup describes it
+in a sentence.
 
 Book is two pages. It is in the table for completeness and means nothing.
 
@@ -178,7 +180,7 @@ Four things in it are worth pointing at:
 - **Zero unparsable JSON-LD blocks.** Curated sites are careful ones. On a random sample this
   would not be zero, and its absence is a symptom of the bias below.
 
-All 177 pages produced at least one tool, 977 in total. Note that the report counts **13** pages as
+All 177 pages produced at least one tool, 751 in total. Note that the report counts **13** pages as
 having no structured data while the test finds a tool for every one of the 177: the report scans
 JSON-LD only, whereas the pipeline also reads microdata and RDFa. The two disagree because the
 pipeline looks harder, and the size of the disagreement is the measure of how much a JSON-LD-only
